@@ -33,7 +33,7 @@ def fetch_tax_list(agg_org_id: str, year: int, period: int) -> dict:
 
     # 提取 taskId
     data = result["data"]
-    task_id = data.get("data", {}).get("taskId", data.get("taskId"))
+    task_id = (data.get("data") or {}).get("taskId", data.get("taskId"))
     if not task_id:
         return {"ok": False, "error": "未获取到 taskId", "raw": data}
 
