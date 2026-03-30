@@ -384,7 +384,21 @@ def do_download(state: dict) -> dict:
     year, period = _parse_period(state["period"])
     tax_list = state["data"].get("tax_list", {})
     required = tax_list.get("required_items", [])
-    zsxm = [{"yzpzzlDm": i.get("yzpzzlDm", "")} for i in required if i.get("yzpzzlDm")]
+
+    import calendar
+    last_day = calendar.monthrange(year, period)[1]
+    default_ssqQ = f"{year}-{period:02d}-01"
+    default_ssqZ = f"{year}-{period:02d}-{last_day}"
+
+    zsxm = []
+    for i in required:
+        code = i.get("yzpzzlDm", "")
+        if code:
+            zsxm.append({
+                "yzpzzlDm": code,
+                "ssqQ": i.get("ssqQ", default_ssqQ),
+                "ssqZ": i.get("ssqZ", default_ssqZ),
+            })
 
     result = download_receipt(state["agg_org_id"], year, period, zsxm)
     state["data"]["receipt_data"] = result.get("structured_data")

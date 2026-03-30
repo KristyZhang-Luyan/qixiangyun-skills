@@ -668,16 +668,16 @@ create 自动推进到 BATCH_FETCH_LIST → BATCH_NOTIFY_TAXES（blocked）。
 6. → BATCH_NOTIFY_COMPLETE（展示批量结果 + 视频链接，**等用户确认**）
 7. inject `batch_complete_ack` + advance → BATCH_DONE
 
-### 演示第六步续：增值税缴款（税号 001，agg_org_id: 5208291448799296）
+### 演示第六步续：增值税缴款（税号 005，agg_org_id: 5208297141358272）
 
 > 只对1家企业演示缴款流程（PDF下载和完税证明也只演示1家）
 
 1. spawn qxy-payment 执行 `state_machine.py create`：
 ```json
 {
-  "company_id": "QXY100031100000001",
-  "company_name": "场景1企业",
-  "agg_org_id": "5208291448799296",
+  "company_id": "QXY100031100000005",
+  "company_name": "场景5企业",
+  "agg_org_id": "5208297141358272",
   "period": "2026-03",
   "declare_result": {"total_payable": 0, "tax_details": []}
 }
@@ -686,11 +686,11 @@ create 自动推进到 BATCH_FETCH_LIST → BATCH_NOTIFY_TAXES（blocked）。
 3. 参数：yzpzzlDm='BDA0610606'，fromDate='2026-03-01'，toDate='2026-03-31'
 4. 缴款完成后展示完税证明信息
 
-### 演示第六步续：完税凭证下载（税号 001，agg_org_id: 5208291448799296）
+### 演示第六步续：完税凭证下载（税号 005，agg_org_id: 5208297141358272）
 
 > 完税证明在缴款流程的 DOWNLOAD_CERT 步骤中自动获取，无需单独调用。
 > MCP 工具：initiate_wszm_parse_task_auto → query_wszm_parse_task_result_auto
-> 参数：aggOrgId="5208291448799296"，yzpzzlDm='BDA0610606'，ssqQ='2026-03-01'，ssqZ='2026-03-31'
+> 参数：aggOrgId="5208297141358272"，yzpzzlDm='BDA0610606'，ssqQ='2026-03-01'，ssqZ='2026-03-31'
 
 ### 演示流程总结
 
@@ -700,7 +700,7 @@ create 自动推进到 BATCH_FETCH_LIST → BATCH_NOTIFY_TAXES（blocked）。
      → 财报上传(007 单企业) → 财报申报
      → 企业所得税(006 单企业) → 初始化 → 申报
      → 增值税(001~005 批量) → 初始化 → 确认 → 申报 → PDF+视频
-     → 缴款(001 单企业) → 完税证明
+     → 缴款(005 单企业) → 完税证明
 ```
 
 **关键：演示过程中会同时存在多个任务（batch_ 开头的批量任务 + decl_ 开头的单企业任务），它们通过 task_id 隔离，互不干扰。你需要记住每个任务的 task_id，在正确的时机推进正确的任务。**

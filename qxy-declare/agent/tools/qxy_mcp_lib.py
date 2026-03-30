@@ -49,6 +49,7 @@ TOOL_TO_SERVICE: dict[str, str] = {
     "load_init_data_task": "initialize_data",
     "get_init_data": "initialize_data",
     "upload_tax_report_data_auto": "declaration_submission",
+    "upload_tax_report_data_excel_auto": "declaration_submission",
     "query_upload_tax_report_result_auto": "declaration_submission",
     "upload_financial_report_data": "declaration_submission",
     "query_upload_financial_report_result_auto": "declaration_submission",

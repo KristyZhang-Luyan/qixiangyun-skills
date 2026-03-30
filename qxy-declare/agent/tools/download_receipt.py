@@ -21,11 +21,26 @@ def download_receipt(agg_org_id: str, year: int, period: int,
         zsxm_list: 税种列表 [{"yzpzzlDm": "BDA0610606", ...}]
     """
     # 1. 发起下载 PDF 任务
+    # 补充 ssqQ/ssqZ（如果调用方没有传入）
+    import calendar
+    last_day = calendar.monthrange(year, period)[1]
+    default_ssqQ = f"{year}-{period:02d}-01"
+    default_ssqZ = f"{year}-{period:02d}-{last_day}"
+
+    full_zsxm_list = []
+    for item in zsxm_list:
+        full_item = dict(item)
+        if "ssqQ" not in full_item:
+            full_item["ssqQ"] = default_ssqQ
+        if "ssqZ" not in full_item:
+            full_item["ssqZ"] = default_ssqZ
+        full_zsxm_list.append(full_item)
+
     result = api_call("load_pdf_task", payload={
         "aggOrgId": agg_org_id,
         "year": year,
         "period": period,
-        "zsxmList": zsxm_list,
+        "zsxmList": full_zsxm_list,
     })
 
     if not result["ok"]:

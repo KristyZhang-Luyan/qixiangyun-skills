@@ -21,6 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     datefmt="%H:%M:%S",
+    encoding="utf-8",
 )
 log = logging.getLogger("qxy")
 
@@ -61,6 +62,7 @@ ENDPOINT_TO_MCP = {
     "query_tax_report_result":       ("declaration_submission", "query_upload_tax_report_result_auto"),
 
     "upload_financial_report":       ("declaration_submission", "upload_financial_report_data"),
+    "upload_financial_report_excel": ("declaration_submission", "upload_tax_report_data_excel_auto"),
     "query_financial_report_result": ("declaration_submission", "query_upload_financial_report_result_auto"),
 
     "simplified_declare":            ("declaration_submission", "upload_tax_report_data_auto"),

@@ -342,6 +342,11 @@ def do_batch_download(state: dict) -> dict:
     submit_result = state["data"].get("submit_result", {})
     submit_results = submit_result.get("results", [])
 
+    import calendar
+    last_day = calendar.monthrange(year, period)[1]
+    default_ssqQ = f"{year}-{period:02d}-01"
+    default_ssqZ = f"{year}-{period:02d}-{last_day}"
+
     download_companies = []
     for sr in submit_results:
         agg_org_id = sr.get("agg_org_id", "")
@@ -350,7 +355,7 @@ def do_batch_download(state: dict) -> dict:
         download_companies.append({
             "agg_org_id": agg_org_id,
             "company_name": company_name,
-            "zsxm_list": [{"yzpzzlDm": tax_code}] if tax_code else [],
+            "zsxm_list": [{"yzpzzlDm": tax_code, "ssqQ": default_ssqQ, "ssqZ": default_ssqZ}] if tax_code else [],
         })
 
     if not download_companies:
