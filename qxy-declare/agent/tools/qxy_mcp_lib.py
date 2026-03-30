@@ -461,19 +461,9 @@ def _collect_status_values(payload: Any) -> list[tuple[str, str]]:
 def infer_task_state(payload: Any) -> str:
     """推断任务状态。"""
 
-    # 显式 success 布尔标志优先判定
-    if isinstance(payload, dict):
-        success_flag = payload.get("success")
-        if success_flag is True:
-            return "success"
-        if success_flag is False:
-            # success=false 时，如果有 code 信息，视为失败
-            code = str(payload.get("code", "")).upper()
-            if code and code not in ("SUCCESS", "2000", ""):
-                return "failed"
-
     markers = _collect_status_values(payload)
 
+    # businessStatus 优先级最高（1=执行中, 2=失败, 3=成功）
     for key, value in markers:
         if key in {"businessStatus", "business_status"}:
             if value == "1":
@@ -482,6 +472,16 @@ def infer_task_state(payload: Any) -> str:
                 return "failed"
             if value == "3":
                 return "success"
+
+    # 显式 success 布尔标志（仅在没有 businessStatus 时生效）
+    if isinstance(payload, dict):
+        success_flag = payload.get("success")
+        if success_flag is True:
+            return "success"
+        if success_flag is False:
+            code = str(payload.get("code", "")).upper()
+            if code and code not in ("SUCCESS", "2000", ""):
+                return "failed"
 
     for _, value in markers:
         if value in FAILURE_MARKERS:

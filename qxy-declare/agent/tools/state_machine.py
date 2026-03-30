@@ -616,13 +616,27 @@ def _format_blocked(state_name: str, state: dict) -> str:
                 lines.append(f"  ⚠️ 近3年存在违法信息")
             lines.append("")
 
+        # 税种代码→名称映射
+        TAX_CODE_NAMES = {
+            "BDA0610606": "增值税及附加税费（小规模纳税人）",
+            "BDA0610135": "附加税费",
+            "BDA0610857": "印花税",
+            "BDA0610994": "个人所得税（代扣代缴）",
+            "BDA0611159": "企业所得税A类（季报）",
+            "BDA0610100": "企业所得税B类（季报）",
+            "CWBBSB": "财务报表（月/季报）",
+            "CWBBNDSB": "财务报表（年报）",
+        }
+
         lines.append(f"已查询到 {company} {period} 月需申报的税种：\n")
         for i, item in enumerate(items, 1):
-            name = item.get("zsxmMc", "未知税种")
-            status = item.get("declareStatus", "")
+            code = item.get("yzpzzlDm", "")
+            name = item.get("zsxmMc", TAX_CODE_NAMES.get(code, f"税种({code})"))
+            status = item.get("declareStatus", item.get("result", ""))
             start = item.get("ssqQ", "")
             end = item.get("ssqZ", "")
-            lines.append(f"{i}. {name}（{status}）申报期 {start} 至 {end}")
+            period_str = f" 申报期 {start} 至 {end}" if start else ""
+            lines.append(f"{i}. {name}{period_str}")
         lines.append(f"\n共 {len(items)} 个税种。请确认是否开始申报？")
         return "\n".join(lines)
 
