@@ -192,14 +192,92 @@ def _format_result(poll_result: dict, task_id, declare_type: str) -> dict:
     }
 
 
+def batch_submit(companies: list, year: int, period: int) -> dict:
+    """
+    批量提交多个企业的申报
+    Args:
+        companies: [{
+            "agg_org_id": "xxx",
+            "company_name": "xxx",
+            "mode": "standard" | "simplified" | "financial",
+            "report_data": {...},  # standard/financial 需要
+            "is_zero": False,      # simplified 判断依据
+            "company_type": "small_scale",
+        }, ...]
+        year: 年份
+        period: 期间
+    Returns:
+        {"ok": bool, "results": [...], "errors": [...]}
+    """
+    results = []
+    errors = []
+
+    for company in companies:
+        agg_org_id = str(company.get("agg_org_id", company.get("aggOrgId", "")))
+        company_name = company.get("company_name", agg_org_id)
+        mode = company.get("mode", "standard")
+        report_data = company.get("report_data", {})
+        is_zero = company.get("is_zero", False)
+        company_type = company.get("company_type", "small_scale")
+
+        log.info(f"[批量申报] 开始处理: {company_name} ({agg_org_id}), 模式={mode}")
+
+        try:
+            if mode == "simplified" or (is_zero and company_type in ("small_scale", "general")):
+                result = submit_simplified(agg_org_id, year, period, sb_init=True)
+            elif mode == "financial":
+                result = submit_financial_report(agg_org_id, year, period, report_data)
+            else:
+                result = submit_standard(agg_org_id, year, period, report_data)
+
+            result["agg_org_id"] = agg_org_id
+            result["company_name"] = company_name
+
+            if result["ok"]:
+                results.append(result)
+                log.info(f"[批量申报] {company_name}: 申报成功")
+            else:
+                errors.append({
+                    "agg_org_id": agg_org_id,
+                    "company_name": company_name,
+                    "error": result.get("error"),
+                    "error_type": result.get("error_type"),
+                    "retryable": result.get("retryable", False),
+                    "code": result.get("code"),
+                })
+                log.error(f"[批量申报] {company_name}: 申报失败 - {result.get('error')}")
+
+        except Exception as e:
+            errors.append({
+                "agg_org_id": agg_org_id,
+                "company_name": company_name,
+                "error": str(e),
+                "error_type": "exception",
+                "retryable": True,
+            })
+            log.error(f"[批量申报] {company_name}: 异常 - {e}")
+
+    return {
+        "ok": len(errors) == 0,
+        "results": results,
+        "errors": errors,
+        "total_companies": len(companies),
+        "success_count": len(results),
+        "error_count": len(errors),
+    }
+
+
 if __name__ == "__main__":
     args = parse_args()
     mode = args.get("mode", "standard")
-    agg_org_id = str(args.get("agg_org_id", args.get("aggOrgId", "")))
-    year = int(args.get("year", 2026))
-    period = int(args.get("period", 1))
 
-    if mode == "simplified":
+    if mode == "batch":
+        result = batch_submit(
+            companies=args.get("companies", []),
+            year=int(args.get("year", 2026)),
+            period=int(args.get("period", 1)),
+        )
+    elif mode == "simplified":
         result = submit_simplified(agg_org_id, year, period,
                                    sb_init=args.get("sb_init", True),
                                    issfqr=args.get("issfqr", 0))
@@ -207,6 +285,9 @@ if __name__ == "__main__":
         result = submit_financial_report(agg_org_id, year, period,
                                          report_data=args.get("report_data", {}))
     else:
+        agg_org_id = str(args.get("agg_org_id", args.get("aggOrgId", "")))
+        year = int(args.get("year", 2026))
+        period = int(args.get("period", 1))
         result = submit_standard(agg_org_id, year, period,
                                  report_data=args.get("report_data", {}))
     output(result)

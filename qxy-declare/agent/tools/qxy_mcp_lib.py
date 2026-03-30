@@ -18,6 +18,7 @@ PROTOCOL_VERSION = "2024-11-05"
 DEFAULT_TIMEOUT_SECONDS = 30
 
 SERVICE_ENDPOINTS: dict[str, str] = {
+    "enterprise_profiling_service": "https://mcp.qixiangyun.com/mcp/enterprise_profiling_service-http/",
     "roster_entry": "https://mcp.qixiangyun.com/mcp/roster_entry-http/",
     "initialize_data": "https://mcp.qixiangyun.com/mcp/initialize_data-http/",
     "declaration_submission": "https://mcp.qixiangyun.com/mcp/declaration_submission-http/",
@@ -29,6 +30,7 @@ SERVICE_ENDPOINTS: dict[str, str] = {
 }
 
 SERVICE_LABELS: dict[str, str] = {
+    "enterprise_profiling_service": "企业画像",
     "roster_entry": "获取应申报清册",
     "initialize_data": "初始化",
     "declaration_submission": "上传申报数据",
@@ -40,6 +42,8 @@ SERVICE_LABELS: dict[str, str] = {
 }
 
 TOOL_TO_SERVICE: dict[str, str] = {
+    "initiate_enterprise_data_collection_auto": "enterprise_profiling_service",
+    "get_collection_status_and_full_data_auto": "enterprise_profiling_service",
     "initiate_declaration_entry_task_auto": "roster_entry",
     "query_roster_entry_task_auto": "roster_entry",
     "load_init_data_task": "initialize_data",
@@ -456,6 +460,17 @@ def _collect_status_values(payload: Any) -> list[tuple[str, str]]:
 
 def infer_task_state(payload: Any) -> str:
     """推断任务状态。"""
+
+    # 显式 success 布尔标志优先判定
+    if isinstance(payload, dict):
+        success_flag = payload.get("success")
+        if success_flag is True:
+            return "success"
+        if success_flag is False:
+            # success=false 时，如果有 code 信息，视为失败
+            code = str(payload.get("code", "")).upper()
+            if code and code not in ("SUCCESS", "2000", ""):
+                return "failed"
 
     markers = _collect_status_values(payload)
 

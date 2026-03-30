@@ -16,6 +16,7 @@ from shared import (
     list_tasks, output, parse_args, log, now_iso,
 )
 from login import ensure_logged_in
+from enterprise_profile import enterprise_profile
 from fetch_tax_list import fetch_tax_list
 from init_declaration import init_declaration
 from submit_declaration import submit_standard, submit_simplified
@@ -41,6 +42,10 @@ STATE_DEFS = {
     "INIT": {
         "type": "auto",
         "handler": "do_init",
+    },
+    "ENTERPRISE_PROFILE": {
+        "type": "auto",
+        "handler": "do_enterprise_profile",
     },
     "FETCH_LIST": {
         "type": "auto",
@@ -72,18 +77,6 @@ STATE_DEFS = {
     "PARSE_EXCEL": {
         "type": "auto",
         "handler": "do_parse_excel",
-    },
-    "CONFIRM_INCOME": {
-        "type": "input",
-        "required_input": "income_reply",
-        "handler": "do_confirm_income",
-        "message": (
-            "【必须和用户交互】请询问用户：本期是否有无票收入？\n"
-            "等用户回复后 inject:\n"
-            '- 有: data_key="income_reply" data_value={"has_income": true, "amount": 50000, "user_said": "有，5万"}\n'
-            '- 没有: data_key="income_reply" data_value={"has_income": false, "user_said": "没有"}\n'
-            "⚠️ 必须等用户真实回复，user_said 必须是用户的原话。"
-        ),
     },
     "TAX_CALC": {
         "type": "auto",
@@ -138,6 +131,46 @@ def do_init(state: dict) -> dict:
         return {"blocked": True, "error": "缺少 agg_org_id"}
 
     log.info(f"[{state['task_id']}] INIT: 跳过自然人登录检查，直接进入申报流程")
+    return {"next": "ENTERPRISE_PROFILE"}
+
+
+def do_enterprise_profile(state: dict) -> dict:
+    """发起企业数据采集，获取企业画像全量数据"""
+    agg = state["agg_org_id"]
+    log.info(f"[{state['task_id']}] ENTERPRISE_PROFILE: 采集企业画像 agg_org_id={agg}")
+
+    result = enterprise_profile(agg)
+
+    if not result["ok"]:
+        # 企业画像失败不阻断流程，记录错误但继续
+        log.warning(f"[{state['task_id']}] 企业画像采集失败: {result.get('error')}，继续流程")
+        state["data"]["enterprise_profile"] = {
+            "ok": False,
+            "error": result.get("error"),
+        }
+        save_state(state["task_id"], state)
+        return {"next": "FETCH_LIST"}
+
+    profile = result.get("profile", {})
+    state["data"]["enterprise_profile"] = {
+        "ok": True,
+        "profile": profile,
+        "raw_data": result.get("raw_data"),
+    }
+
+    # 从画像中提取行业信息，后续税费计算可能用到（如行业税负率对比、小微企业判断）
+    industry = profile.get("basic", {}).get("industry", "")
+    if industry:
+        state["data"]["industry"] = industry
+        log.info(f"[{state['task_id']}] 企业所属行业: {industry}")
+
+    # 提取纳税人类型，用于后续逻辑判断
+    taxpayer_type = profile.get("basic", {}).get("taxpayer_type", "")
+    if taxpayer_type:
+        state["data"]["taxpayer_type"] = taxpayer_type
+
+    save_state(state["task_id"], state)
+    log.info(f"[{state['task_id']}] 企业画像采集完成: {profile.get('basic', {}).get('enterprise_name', '')}")
     return {"next": "FETCH_LIST"}
 
 
@@ -200,7 +233,7 @@ def do_parse_excel(state: dict) -> dict:
     state["data"]["parsed_excel"] = parsed
     save_state(state["task_id"], state)
     log.info(f"[{state['task_id']}] Excel 解析完成: vat={bool(parsed.get('vat'))}, cit={bool(parsed.get('cit'))}")
-    return {"next": "CONFIRM_INCOME"}
+    return {"next": "TAX_CALC"}
 
 
 def _extract_excel_data(file_path: str, company_type: str = "small_scale") -> dict:
@@ -272,32 +305,6 @@ def _extract_excel_data(file_path: str, company_type: str = "small_scale") -> di
     return result
 
 
-def do_confirm_income(state: dict) -> dict:
-    reply = state["data"].get("income_reply", {})
-
-    if reply.get("has_income") and reply.get("amount", 0) > 0:
-        amount = reply["amount"]
-        parsed = state["data"].get("parsed_excel") or {}
-
-        vat = parsed.get("vat") or {}
-        old_sales = vat.get("sales_amount", 0)
-        vat["sales_amount"] = old_sales + amount
-        vat["no_invoice_income"] = amount
-        parsed["vat"] = vat
-
-        cit = parsed.get("cit") or {}
-        old_rev = cit.get("revenue", 0)
-        cit["revenue"] = old_rev + amount
-        cit["no_invoice_income"] = amount
-        parsed["cit"] = cit
-
-        state["data"]["parsed_excel"] = parsed
-        save_state(state["task_id"], state)
-        log.info(f"[{state['task_id']}] 无票收入 ¥{amount} 已加入")
-
-    return {"next": "TAX_CALC"}
-
-
 def do_tax_calc(state: dict) -> dict:
     from calculate_tax import calculate_tax
 
@@ -312,10 +319,19 @@ def do_tax_calc(state: dict) -> dict:
         state["company_type"] = detected
         save_state(state["task_id"], state)
 
+    # 从企业画像获取行业信息
+    industry = state["data"].get("industry", "")
+    ep = state["data"].get("enterprise_profile", {})
+    if not industry and ep and ep.get("ok"):
+        industry = ep.get("profile", {}).get("basic", {}).get("industry", "")
+
     result = calculate_tax(
         declaration_data=parsed,
         tax_codes=codes,
         company_type=company_type,
+        init_data=state["data"].get("init_data"),
+        industry=industry,
+        financial_report=parsed.get("financial_report"),
     )
     state["data"]["calculated_taxes"] = result
     save_state(state["task_id"], state)
@@ -354,6 +370,16 @@ def do_submit(state: dict) -> dict:
     return {"next": "DOWNLOAD"}
 
 
+# 增值税申报视频 URL（录制好的申报操作视频，随PDF一起返回给用户）
+DECLARE_VIDEO_URL = (
+    "http://qxy-oss-robot-product.qixiangyun.com/VIDEO/"
+    "etax-agg-product_0d17b8be20214c11a52ccb869fb185ce_1773040951439.webm"
+    "?OSSAccessKeyId=LTAI5tMHcomKiHbKRhS2uU8X"
+    "&Expires=1804144951"
+    "&Signature=4GzUiutzNNoMGMtL%2BCt/%2Bk9qWcY%3D"
+)
+
+
 def do_download(state: dict) -> dict:
     year, period = _parse_period(state["period"])
     tax_list = state["data"].get("tax_list", {})
@@ -363,6 +389,13 @@ def do_download(state: dict) -> dict:
     result = download_receipt(state["agg_org_id"], year, period, zsxm)
     state["data"]["receipt_data"] = result.get("structured_data")
     state["data"]["pdf_data"] = result.get("pdf_data")
+
+    # 申报视频URL随PDF一起存储，返回给用户时一并展示
+    state["data"]["declare_video"] = {
+        "video_url": DECLARE_VIDEO_URL,
+        "description": "增值税申报操作视频",
+    }
+
     save_state(state["task_id"], state)
 
     return {"next": "NOTIFY_COMPLETE"}
@@ -381,6 +414,17 @@ def do_done(state: dict) -> dict:
             "tax_code": r.get("tax_code", ""),
             "final_amount": r.get("final_amount", 0),
         })
+    ep = state["data"].get("enterprise_profile", {})
+    ep_summary = {}
+    if ep and ep.get("ok") and ep.get("profile"):
+        basic = ep["profile"].get("basic", {})
+        ep_summary = {
+            "enterprise_name": basic.get("enterprise_name", ""),
+            "industry": basic.get("industry", ""),
+            "taxpayer_type": basic.get("taxpayer_type", ""),
+            "credit_grade": basic.get("credit_grade", ""),
+        }
+
     return {
         "terminal": True,
         "summary": {
@@ -391,6 +435,7 @@ def do_done(state: dict) -> dict:
             "total_payable": taxes.get("total_payable", 0),
             "is_all_zero": taxes.get("is_all_zero", False),
             "tax_details": tax_details,
+            "enterprise_profile": ep_summary,
             "message": f"{state['company_name']} {state['period']} 申报完成",
         },
     }
@@ -411,12 +456,12 @@ def do_failed(state: dict) -> dict:
 
 HANDLER_MAP = {
     "do_init": do_init,
+    "do_enterprise_profile": do_enterprise_profile,
     "do_fetch_list": do_fetch_list,
     "do_notify_taxes": do_notify_taxes,
     "do_data_init": do_data_init,
     "do_wait_upload": do_wait_upload,
     "do_parse_excel": do_parse_excel,
-    "do_confirm_income": do_confirm_income,
     "do_tax_calc": do_tax_calc,
     "do_confirm_tax": do_confirm_tax,
     "do_submit": do_submit,
@@ -433,12 +478,12 @@ HANDLER_MAP = {
 
 STATE_CHAIN = [
     "INIT",
+    "ENTERPRISE_PROFILE",
     "FETCH_LIST",
     "NOTIFY_TAXES",
     "DATA_INIT",
     "WAIT_UPLOAD",
     "PARSE_EXCEL",
-    "CONFIRM_INCOME",
     "TAX_CALC",
     "CONFIRM_TAX",
     "SUBMIT",
@@ -450,12 +495,12 @@ STATE_CHAIN = [
 # 每个状态完成后应在 state_history 或 data 中留下的证据
 STATE_EVIDENCE = {
     "INIT":            {"history": True},
+    "ENTERPRISE_PROFILE": {"history": True, "data_key": "enterprise_profile"},
     "FETCH_LIST":      {"history": True, "data_key": "tax_list"},
     "NOTIFY_TAXES":    {"history": True, "data_key": "notify_taxes_ack", "need_user_said": True},
     "DATA_INIT":       {"history": True, "data_key": "init_data"},
     "WAIT_UPLOAD":     {"history": True, "data_key": "uploaded_excel", "need_user_said": True},
     "PARSE_EXCEL":     {"history": True, "data_key": "parsed_excel"},
-    "CONFIRM_INCOME":  {"history": True, "data_key": "income_reply", "need_user_said": True},
     "TAX_CALC":        {"history": True, "data_key": "calculated_taxes"},
     "CONFIRM_TAX":     {"history": True, "data_key": "tax_confirm_ack", "need_user_said": True},
     "SUBMIT":          {"history": True, "data_key": "submit_result"},
@@ -543,7 +588,35 @@ def _format_blocked(state_name: str, state: dict) -> str:
     receipt = state["data"].get("receipt_data")
 
     if state_name == "NOTIFY_TAXES":
-        lines = [f"已查询到 {company} {period} 月需申报的税种：\n"]
+        lines = []
+
+        # 展示企业画像摘要（如果有）
+        ep = state["data"].get("enterprise_profile", {})
+        if ep and ep.get("ok") and ep.get("profile"):
+            profile = ep["profile"]
+            basic = profile.get("basic", {})
+            biz = profile.get("business", {})
+            th = profile.get("tax_health", {})
+            lines.append(f"【企业画像】{basic.get('enterprise_name', company)}")
+            if basic.get("industry"):
+                lines.append(f"  所属行业：{basic['industry']}")
+            if basic.get("taxpayer_type"):
+                lines.append(f"  纳税人类型：{basic['taxpayer_type']}")
+            if basic.get("tax_status"):
+                lines.append(f"  税务经营状态：{basic['tax_status']}")
+            if basic.get("credit_grade"):
+                lines.append(f"  信用等级：{basic['credit_grade']}（{th.get('credit_label', '')}）")
+            if biz.get("total_revenue_3y"):
+                lines.append(f"  近3年累计营收：¥{biz['total_revenue_3y']:,.2f}")
+            if biz.get("top_business"):
+                lines.append(f"  核心业务：{biz['top_business']}")
+            if th.get("has_overdue_tax"):
+                lines.append(f"  ⚠️ 当前存在欠税")
+            if th.get("has_violations"):
+                lines.append(f"  ⚠️ 近3年存在违法信息")
+            lines.append("")
+
+        lines.append(f"已查询到 {company} {period} 月需申报的税种：\n")
         for i, item in enumerate(items, 1):
             name = item.get("zsxmMc", "未知税种")
             status = item.get("declareStatus", "")
@@ -558,9 +631,6 @@ def _format_blocked(state_name: str, state: dict) -> str:
 
     elif state_name == "PARSE_EXCEL":
         return f"正在解析您上传的申报数据，请稍候..."
-
-    elif state_name == "CONFIRM_INCOME":
-        return f"请问 {company} 本期是否有无票收入？如有请告知金额。"
 
     elif state_name == "CONFIRM_TAX":
         if taxes and taxes.get("results"):
@@ -577,6 +647,8 @@ def _format_blocked(state_name: str, state: dict) -> str:
             return f"{company} {period} 月应缴税费合计: ¥0.00（零申报）。请确认是否提交？"
 
     elif state_name == "NOTIFY_COMPLETE":
+        lines = []
+
         pdf_url = ""
         if receipt and isinstance(receipt, dict):
             inner = receipt.get("data", receipt)
@@ -585,11 +657,20 @@ def _format_blocked(state_name: str, state: dict) -> str:
                 structured = inner.get("structured_data", {})
                 if structured:
                     total_tax = structured.get("total_tax", "0.00")
-                    return (f"{company} {period} 月申报已完成！\n"
-                            f"应缴税额: ¥{total_tax}\n"
-                            f"申报回执已获取。\n"
-                            f"请确认收到以上信息。")
-        return f"{company} {period} 月申报已完成！请确认收到。"
+                    lines.append(f"{company} {period} 月申报已完成！")
+                    lines.append(f"应缴税额: ¥{total_tax}")
+                    lines.append(f"申报回执已获取。")
+
+        # 展示申报操作视频链接（录制好的视频，和PDF一起返回）
+        video_data = state["data"].get("declare_video", {})
+        if video_data and video_data.get("video_url"):
+            lines.append(f"申报操作视频: {video_data['video_url']}")
+
+        if not lines:
+            lines.append(f"{company} {period} 月申报已完成！")
+
+        lines.append("请确认收到以上信息。")
+        return "\n".join(lines)
 
     return STATE_DEFS.get(state_name, {}).get("message", "请回复以继续。")
 

@@ -51,14 +51,25 @@ def fetch_tax_list(agg_org_id: str, year: int, period: int) -> dict:
     roster_data = poll_result.get("data", {})
     biz_data = roster_data.get("data", roster_data)
 
-    # 提取税种列表（字段名根据实际返回调整）
-    items = biz_data.get("rosterEntries", biz_data.get("items",
-            biz_data.get("list", biz_data.get("declareItems", []))))
+    # 提取税种列表 — 实际返回字段名为 detail
+    items = biz_data.get("detail", biz_data.get("rosterEntries", biz_data.get("items",
+            biz_data.get("list", biz_data.get("declareItems", [])))))
 
-    required = [
-        item for item in items
-        if item.get("declareStatus") not in ("已申报", "completed")
-    ]
+    # 过滤需要申报的：
+    #   - code=2000 且 state 不为 "1"(已申报) 的视为待申报
+    #   - 没有 state 字段的默认为待申报
+    required = []
+    for item in items:
+        code = str(item.get("code", ""))
+        state = str(item.get("state", ""))
+        declare_status = item.get("declareStatus", "")
+        # 跳过已申报的
+        if declare_status in ("已申报", "completed") or state == "1":
+            continue
+        # 跳过失败的
+        if code not in ("2000", "SUCCESS", ""):
+            continue
+        required.append(item)
 
     return {
         "ok": True,
@@ -71,11 +82,71 @@ def fetch_tax_list(agg_org_id: str, year: int, period: int) -> dict:
     }
 
 
+def batch_fetch_tax_list(companies: list, year: int, period: int) -> dict:
+    """
+    批量获取多个企业的应申报清册
+    Args:
+        companies: [{"agg_org_id": "xxx", "company_name": "xxx", "company_id": "xxx"}, ...]
+        year: 年份
+        period: 期间
+    Returns:
+        {"ok": bool, "results": [...], "errors": [...], "summary": {...}}
+    """
+    results = []
+    errors = []
+
+    for company in companies:
+        agg_org_id = str(company.get("agg_org_id", company.get("aggOrgId", "")))
+        company_name = company.get("company_name", agg_org_id)
+        company_id = company.get("company_id", "")
+
+        log.info(f"[批量获取清册] 开始处理: {company_name} ({agg_org_id})")
+
+        result = fetch_tax_list(agg_org_id, year, period)
+        result["agg_org_id"] = agg_org_id
+        result["company_name"] = company_name
+        result["company_id"] = company_id
+
+        if result["ok"]:
+            results.append(result)
+            log.info(f"[批量获取清册] {company_name}: 需申报 {result.get('required_count', 0)} 个税种")
+        else:
+            errors.append({
+                "agg_org_id": agg_org_id,
+                "company_name": company_name,
+                "company_id": company_id,
+                "error": result.get("error"),
+                "code": result.get("code"),
+            })
+            log.error(f"[批量获取清册] {company_name} 失败: {result.get('error')}")
+
+    return {
+        "ok": len(errors) == 0,
+        "results": results,
+        "errors": errors,
+        "total_companies": len(companies),
+        "success_count": len(results),
+        "error_count": len(errors),
+        "summary": {
+            "total_required_items": sum(r.get("required_count", 0) for r in results),
+        },
+    }
+
+
 if __name__ == "__main__":
     args = parse_args()
-    result = fetch_tax_list(
-        agg_org_id=str(args.get("agg_org_id", args.get("aggOrgId", ""))),
-        year=int(args.get("year", 2026)),
-        period=int(args.get("period", 1)),
-    )
+    mode = args.get("mode", "single")
+
+    if mode == "batch":
+        result = batch_fetch_tax_list(
+            companies=args.get("companies", []),
+            year=int(args.get("year", 2026)),
+            period=int(args.get("period", 1)),
+        )
+    else:
+        result = fetch_tax_list(
+            agg_org_id=str(args.get("agg_org_id", args.get("aggOrgId", ""))),
+            year=int(args.get("year", 2026)),
+            period=int(args.get("period", 1)),
+        )
     output(result)

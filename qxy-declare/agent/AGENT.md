@@ -92,6 +92,8 @@
 ## 你能执行的命令
 
 ```bash
+# ── 单企业模式（原有，不变）──
+
 # 创建任务
 python3 tools/state_machine.py '{"action":"create",...}'
 
@@ -103,6 +105,23 @@ python3 tools/state_machine.py '{"action":"inject","task_id":"...","data_key":".
 
 # 查看状态
 python3 tools/state_machine.py '{"action":"status","task_id":"..."}'
+
+# ── 批量模式（新增）──
+
+# 创建批量任务
+python3 tools/batch_state_machine.py '{"action":"create","companies":[{"company_id":"xxx","company_name":"测试1","agg_org_id":"123"},...],"period":"2026-03","tax_type":"vat"}'
+
+# 批量推进
+python3 tools/batch_state_machine.py '{"action":"advance","task_id":"batch_..."}'
+
+# 批量注入
+python3 tools/batch_state_machine.py '{"action":"inject","task_id":"batch_...","data_key":"...","data_value":{...}}'
+
+# 批量状态查询
+python3 tools/batch_state_machine.py '{"action":"status","task_id":"batch_..."}'
+
+# 列出所有批量任务
+python3 tools/batch_state_machine.py '{"action":"list"}'
 ```
 
 ---

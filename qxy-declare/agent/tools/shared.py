@@ -46,6 +46,10 @@ POLL_MAX = int(os.environ.get("QXY_POLL_MAX", "30"))
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ENDPOINT_TO_MCP = {
+    # ── 企业画像 ──────────────────────────────────
+    "initiate_enterprise_data_collection":  ("enterprise_profiling_service", "initiate_enterprise_data_collection_auto"),
+    "get_collection_status_and_full_data":  ("enterprise_profiling_service", "get_collection_status_and_full_data_auto"),
+
     # ── 申报 ──────────────────────────────────────
     "initiate_roster_entry":         ("roster_entry", "initiate_declaration_entry_task_auto"),
     "query_roster_result":           ("roster_entry", "query_roster_entry_task_auto"),
@@ -87,8 +91,9 @@ _LOGIN_ENDPOINTS = {
 
 # service → 默认轮询 query tool
 SERVICE_POLL_TOOL = {
+    "enterprise_profiling_service": "get_collection_status_and_full_data_auto",
     "roster_entry":              "query_roster_entry_task_auto",
-    "initialize_data":           "load_init_data_task",
+    "initialize_data":           "get_init_data",
     "declaration_submission":    "query_upload_tax_report_result_auto",
     "pdf_download":              "query_pdf_task_result_auto",
     "declaration_query":         "query_declare_info_task_result_auto",
@@ -268,6 +273,7 @@ def create_task(company_id: str, company_name: str, period: str,
         "state": "INIT",
         "state_history": [],
         "data": {
+            "enterprise_profile": None,
             "tax_list": None,
             "declaration_forms": None,
             "init_data": None,
@@ -277,6 +283,7 @@ def create_task(company_id: str, company_name: str, period: str,
             "policy_matches": None,
             "validation_result": None,
             "submit_result": None,
+            "declare_video": None,
             "receipt_url": None,
             "receipt_data": None,
         },

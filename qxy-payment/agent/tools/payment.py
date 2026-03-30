@@ -101,11 +101,62 @@ def download_tax_certificate(agg_org_id: str, year: int, period: int,
     }
 
 
+def batch_execute_payment(companies: list, year: int, period: int) -> dict:
+    """
+    批量缴款（多个企业）
+    Args:
+        companies: [{
+            "agg_org_id": "xxx",
+            "company_name": "xxx",
+            "payment_detail": [...]
+        }, ...]
+    """
+    results = []
+    errors = []
+
+    for company in companies:
+        agg_org_id = str(company.get("agg_org_id", company.get("aggOrgId", "")))
+        company_name = company.get("company_name", agg_org_id)
+        payment_detail = company.get("payment_detail", company.get("detail", []))
+
+        log.info(f"[批量缴款] 开始处理: {company_name} ({agg_org_id})")
+
+        result = execute_payment(agg_org_id, year, period, payment_detail)
+        result["agg_org_id"] = agg_org_id
+        result["company_name"] = company_name
+
+        if result["ok"]:
+            results.append(result)
+            log.info(f"[批量缴款] {company_name}: 缴款成功")
+        else:
+            errors.append({
+                "agg_org_id": agg_org_id,
+                "company_name": company_name,
+                "error": result.get("error"),
+            })
+            log.error(f"[批量缴款] {company_name}: 缴款失败 - {result.get('error')}")
+
+    return {
+        "ok": len(errors) == 0,
+        "results": results,
+        "errors": errors,
+        "total_companies": len(companies),
+        "success_count": len(results),
+        "error_count": len(errors),
+    }
+
+
 if __name__ == "__main__":
     args = parse_args()
     action = args.get("action", "pay")
 
-    if action == "certificate":
+    if action == "batch_pay":
+        result = batch_execute_payment(
+            companies=args.get("companies", []),
+            year=int(args.get("year", 2026)),
+            period=int(args.get("period", 1)),
+        )
+    elif action == "certificate":
         result = download_tax_certificate(
             agg_org_id=str(args.get("agg_org_id", "")),
             year=int(args.get("year", 2026)),
