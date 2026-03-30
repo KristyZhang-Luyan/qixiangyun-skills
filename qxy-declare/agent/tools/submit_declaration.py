@@ -277,17 +277,19 @@ if __name__ == "__main__":
             year=int(args.get("year", 2026)),
             period=int(args.get("period", 1)),
         )
-    elif mode == "simplified":
-        result = submit_simplified(agg_org_id, year, period,
-                                   sb_init=args.get("sb_init", True),
-                                   issfqr=args.get("issfqr", 0))
-    elif mode == "financial":
-        result = submit_financial_report(agg_org_id, year, period,
-                                         report_data=args.get("report_data", {}))
     else:
         agg_org_id = str(args.get("agg_org_id", args.get("aggOrgId", "")))
         year = int(args.get("year", 2026))
         period = int(args.get("period", 1))
-        result = submit_standard(agg_org_id, year, period,
-                                 report_data=args.get("report_data", {}))
+
+        if mode == "simplified":
+            result = submit_simplified(agg_org_id, year, period,
+                                       sb_init=args.get("sb_init", True),
+                                       issfqr=args.get("issfqr", 0))
+        elif mode == "financial":
+            result = submit_financial_report(agg_org_id, year, period,
+                                             report_data=args.get("report_data", {}))
+        else:
+            result = submit_standard(agg_org_id, year, period,
+                                     report_data=args.get("report_data", {}))
     output(result)

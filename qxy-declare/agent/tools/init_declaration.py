@@ -91,6 +91,8 @@ def init_declaration(agg_org_id: str, year: int, period: int,
         poll_ok = False
         last_error = ""
 
+        not_found_count = 0
+
         for attempt in range(1, poll_max + 1):
             detail = api_call("get_init_data", payload={
                 "aggOrgId": agg_org_id,
@@ -103,16 +105,28 @@ def init_declaration(agg_org_id: str, year: int, period: int,
                 detail_data = detail["data"]
                 if not isinstance(detail_data, dict):
                     log.info(f"get_init_data 第 {attempt}/{poll_max} 次: 返回非dict，继续等待")
+                    if attempt < poll_max:
+                        _time.sleep(poll_interval)
                     continue
 
                 msg = detail_data.get("message", "")
                 inner_data = detail_data.get("data")
                 raw = detail_data.get("raw_text", "")
 
-                # 任务还在执行中：data 为空或 message 提示执行中
-                if inner_data is None or "执行中" in msg or "稍后" in msg:
+                # "未找到初始化的任务" → 连续出现3次就放弃
+                if "未找到" in msg:
+                    not_found_count += 1
+                    log.info(f"get_init_data 第 {attempt}/{poll_max} 次: {msg} (连续{not_found_count}次)")
+                    if not_found_count >= 3:
+                        last_error = msg
+                        log.warning(f"get_init_data 连续{not_found_count}次未找到任务，放弃")
+                        break
+                # 任务还在执行中
+                elif inner_data is None or "执行中" in msg:
+                    not_found_count = 0
                     log.info(f"get_init_data 第 {attempt}/{poll_max} 次: {msg or '数据未就绪'}")
                 elif raw:
+                    not_found_count = 0
                     log.info(f"get_init_data 第 {attempt}/{poll_max} 次: 数据未就绪(raw_text)")
                 else:
                     log.info(f"get_init_data 第 {attempt}/{poll_max} 次: 成功")

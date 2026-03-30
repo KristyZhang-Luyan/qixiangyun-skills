@@ -406,7 +406,7 @@ def do_notify_complete(state: dict) -> dict:
 
 
 def do_done(state: dict) -> dict:
-    taxes = state["data"].get("calculated_taxes", {})
+    taxes = state["data"].get("calculated_taxes") or {}
     tax_details = []
     for r in taxes.get("results", []):
         tax_details.append({
