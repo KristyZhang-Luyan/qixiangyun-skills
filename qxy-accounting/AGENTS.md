@@ -170,7 +170,7 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 ```bash
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5_vat_init"}'
 ```
-**把返回的初始化数据（金额等）展示给用户，等用户确认后再继续。**
+**⛔ 返回的 user_message 已包含 markdown 表格，必须原样发送给用户，不要改写格式。等用户确认后再继续。**
 
 **5b. 批量申报提交（用户确认后）**
 ```bash

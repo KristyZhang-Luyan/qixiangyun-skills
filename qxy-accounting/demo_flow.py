@@ -269,8 +269,9 @@ def step5_vat_init():
     log.info("【第五步】增值税批量初始化")
     try:
         from init_declaration import init_declaration
-        lines = []
+        table_rows = []  # [(企业名, 销售额, 销项税额, 进项税额, 应纳税额, 附加税应补)]
         cache_data = {}  # {cid: initData}
+        errors = []
         for cid in VAT_BATCH_IDS:
             c = _ci(cid)
             log.info(f"增值税初始化: {c['name']}")
@@ -284,22 +285,31 @@ def step5_vat_init():
                 # 提取金额用于展示
                 amounts = _extract_vat_amounts(ir)
                 if amounts:
-                    ybt = amounts["本期应补退税额"]
-                    fj = amounts["附加税应补"]
-                    lines.append(
-                        f"  {c['name']}：初始化成功\n"
-                        f"    销售额: {amounts['销售额']}  销项税额: {amounts['销项税额']}  进项税额: {amounts['进项税额']}\n"
-                        f"    应纳税额: {amounts['应纳税额']}  本期应补(退)税额: {ybt}\n"
-                        f"    附加税应纳: {amounts['附加税应纳']}  附加税应补: {fj}"
-                    )
+                    table_rows.append((
+                        c["name"],
+                        amounts["销售额"],
+                        amounts["销项税额"],
+                        amounts["进项税额"],
+                        amounts["应纳税额"],
+                        amounts["附加税应补"],
+                    ))
                 else:
-                    lines.append(f"  {c['name']}：初始化成功（未获取到金额明细）")
+                    table_rows.append((c["name"], "-", "-", "-", "-", "-"))
             else:
-                lines.append(f"  {c['name']}：初始化失败 - {ir.get('errors', '未知错误')}")
+                errors.append(f"{c['name']}：初始化失败 - {ir.get('errors', '未知错误')}")
         # 保存缓存
         if cache_data:
             _save_init_cache(cache_data)
-        return _ok(f"第五步（批量初始化）完成：\n\n" + "\n".join(lines) + "\n\n请确认以上申报数据，确认后将提交申报。")
+        # 构建 markdown 表格
+        msg = "第五步（增值税批量初始化）完成，5家企业数据如下：\n\n"
+        msg += "| 企业 | 销售额 | 销项税额 | 进项税额 | 应纳税额 | 附加税应补 |\n"
+        msg += "|---|---|---|---|---|---|\n"
+        for row in table_rows:
+            msg += f"| {row[0]} | {row[1]} | {row[2]} | {row[3]} | {row[4]} | {row[5]} |\n"
+        if errors:
+            msg += "\n" + "\n".join(errors) + "\n"
+        msg += "\n请确认以上申报数据，确认后将提交申报。"
+        return _ok(msg)
     except Exception as e:
         return _err(f"第五步（批量初始化）失败：{e}")
 
