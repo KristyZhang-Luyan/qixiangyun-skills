@@ -18,6 +18,7 @@ def fetch_tax_list(agg_org_id: str, year: int, period: int) -> dict:
         period: 期间 (如 2 表示2月)
     """
     # 1. 发起获取申报条目任务
+    log.info(f"[获取清册] 发起请求: aggOrgId={agg_org_id}, year={year}, period={period}")
     result = api_call("initiate_roster_entry", payload={
         "aggOrgId": agg_org_id,
         "year": year,
@@ -25,6 +26,7 @@ def fetch_tax_list(agg_org_id: str, year: int, period: int) -> dict:
     })
 
     if not result["ok"]:
+        log.error(f"[获取清册] 发起失败: {result.get('error')} code={result.get('code')}")
         return {
             "ok": False,
             "error": result.get("error", result.get("message", "发起获取清册失败")),
@@ -35,16 +37,21 @@ def fetch_tax_list(agg_org_id: str, year: int, period: int) -> dict:
     data = result["data"]
     task_id = (data.get("data") or {}).get("taskId", data.get("taskId"))
     if not task_id:
+        log.error(f"[获取清册] 未获取到 taskId, 原始返回: {data}")
         return {"ok": False, "error": "未获取到 taskId", "raw": data}
+
+    log.info(f"[获取清册] 获取到 taskId={task_id}，开始轮询...")
 
     # 2. 轮询结果
     poll_result = poll_task(agg_org_id, task_id)
 
     if not poll_result["ok"]:
+        log.error(f"[获取清册] 轮询失败: status={poll_result.get('status')} error={poll_result.get('error')} taskId={task_id} attempts={poll_result.get('poll_attempts')}")
         return {
             "ok": False,
             "error": poll_result.get("error"),
             "status": poll_result.get("status"),
+            "task_id": task_id,
         }
 
     # 3. 解析清册数据
@@ -55,14 +62,35 @@ def fetch_tax_list(agg_org_id: str, year: int, period: int) -> dict:
     items = biz_data.get("detail", biz_data.get("rosterEntries", biz_data.get("items",
             biz_data.get("list", biz_data.get("declareItems", [])))))
 
+    # ── 税种白名单：当前只处理增值税和企业所得税 ──
+    SUPPORTED_TAX_CODES = {
+        "BDA0610606",  # 增值税及附加税费（小规模纳税人）
+        "BDA0620200",  # 增值税及附加税费（小规模-其他）
+        "BDA0610600",  # 增值税（一般纳税人）
+        "BDA0610601",  # 增值税（一般纳税人-其他）
+        "BDA0611159",  # 企业所得税A类（季报）
+        "BDA0610100",  # 企业所得税B类（季报）
+        "BDA0610101",  # 企业所得税（其他）
+        "CWBBSB",      # 财务报表（月/季报）
+        "CWBBNDSB",    # 财务报表（年报）
+    }
+
     # 过滤需要申报的：
+    #   - 只保留白名单内的税种（增值税、企业所得税、财务报表）
     #   - code=2000 且 state 不为 "1"(已申报) 的视为待申报
     #   - 没有 state 字段的默认为待申报
     required = []
+    skipped_codes = []
     for item in items:
         code = str(item.get("code", ""))
         state = str(item.get("state", ""))
         declare_status = item.get("declareStatus", "")
+        yzpzzl_dm = item.get("yzpzzlDm", "")
+
+        # 跳过不在白名单内的税种
+        if yzpzzl_dm and yzpzzl_dm not in SUPPORTED_TAX_CODES:
+            skipped_codes.append(f"{item.get('zsxmMc', yzpzzl_dm)}({yzpzzl_dm})")
+            continue
         # 跳过已申报的
         if declare_status in ("已申报", "completed") or state == "1":
             continue
@@ -70,6 +98,9 @@ def fetch_tax_list(agg_org_id: str, year: int, period: int) -> dict:
         if code not in ("2000", "SUCCESS", ""):
             continue
         required.append(item)
+
+    if skipped_codes:
+        log.info(f"跳过不支持的税种: {', '.join(skipped_codes)}")
 
     return {
         "ok": True,

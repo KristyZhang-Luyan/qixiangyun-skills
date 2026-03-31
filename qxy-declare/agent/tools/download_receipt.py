@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 """
 download_receipt — 下载申报 PDF 回执
 对应企享云接口:

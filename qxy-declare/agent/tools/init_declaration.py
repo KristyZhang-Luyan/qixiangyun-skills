@@ -84,9 +84,10 @@ def init_declaration(agg_org_id: str, year: int, period: int,
 
         # 2. 轮询获取初始化数据（initialize_data 服务无独立状态查询接口，
         #    直接用 get_init_data 轮询，返回有效数据即为成功）
+        #    缩短超时：5秒间隔 × 最多15次 = 75秒封顶（单税种）
         import time as _time
-        poll_interval = 10
-        poll_max = 30
+        poll_interval = 5
+        poll_max = 15
         detail_data = None
         poll_ok = False
         last_error = ""

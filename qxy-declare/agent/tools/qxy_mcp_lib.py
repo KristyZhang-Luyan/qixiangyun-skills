@@ -529,6 +529,16 @@ def poll_tool(
             max_attempts,
             last_state,
         )
+        if last_state == "failed":
+            # 记录失败时的完整响应，便于排查
+            try:
+                detail = json.dumps(last_result, ensure_ascii=False, default=str)[:800]
+            except Exception:
+                detail = str(last_result)[:800]
+            LOGGER.warning(
+                "轮询失败详情 服务=%s 工具=%s: %s",
+                service_name, tool_name, detail,
+            )
         if last_state in {"success", "failed"}:
             return {
                 "state": last_state,

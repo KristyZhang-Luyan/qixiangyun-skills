@@ -206,6 +206,12 @@ def do_batch_notify_taxes(state: dict) -> dict:
 
 
 def do_batch_data_init(state: dict) -> dict:
+    # ── 幂等检查：如果已有 init_result 且有成功结果，跳过 ──
+    existing = state["data"].get("init_result")
+    if existing and isinstance(existing, dict) and existing.get("results"):
+        log.info(f"[{state['task_id']}] BATCH_DATA_INIT: 已有初始化数据，跳过重复执行")
+        return {"next": "BATCH_CONFIRM_TAX"}
+
     year, period = _parse_period(state["period"])
     tax_type = state.get("tax_type", "vat")
     tax_code = _tax_type_code(tax_type)

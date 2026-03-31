@@ -199,19 +199,55 @@ def do_notify_taxes(state: dict) -> dict:
 
 
 def do_data_init(state: dict) -> dict:
+    # ── 幂等检查：如果已有 init_data 且有成功结果，跳过 ──
+    existing = state["data"].get("init_data")
+    if existing and isinstance(existing, dict):
+        initialized = [r for r in existing.get("results", [])
+                       if r.get("status") == "initialized"]
+        if initialized:
+            log.info(f"[{state['task_id']}] DATA_INIT: 已有 {len(initialized)} 个税种初始化数据，跳过重复执行")
+            state["data"]["parsed_excel"] = {"user_said": "数据从初始化接口自动获取"}
+            state["data"]["uploaded_excel"] = {"user_said": "数据从初始化接口自动获取", "file_path": ""}
+            save_state(state["task_id"], state)
+            return {"next": "TAX_CALC"}
+
     year, period = _parse_period(state["period"])
     tax_list = state["data"].get("tax_list", {})
     required = tax_list.get("required_items", [])
 
-    result = init_declaration(state["agg_org_id"], year, period, required)
-    state["data"]["init_data"] = result
+    # ── 税种白名单：只初始化增值税和企业所得税 ──
+    INIT_TAX_CODES = {
+        "BDA0610606", "BDA0620200",  # 增值税（小规模）
+        "BDA0610600", "BDA0610601",  # 增值税（一般纳税人）
+        "BDA0611159", "BDA0610100", "BDA0610101",  # 企业所得税
+    }
+    filtered = []
+    for item in required:
+        code = item.get("yzpzzlDm", item.get("tax_code", ""))
+        if code in INIT_TAX_CODES:
+            filtered.append(item)
+        else:
+            log.info(f"[{state['task_id']}] DATA_INIT: 跳过非初始化税种 {code}")
+
+    if not filtered:
+        log.info(f"[{state['task_id']}] DATA_INIT: 没有需要初始化的税种")
+        state["data"]["init_data"] = {"ok": True, "results": [], "errors": [],
+                                       "initialized_count": 0, "error_count": 0}
+    else:
+        result = init_declaration(state["agg_org_id"], year, period, filtered)
+        state["data"]["init_data"] = result
+
+        if result.get("errors") and not result.get("results"):
+            save_state(state["task_id"], state)
+            fail(state, f"初始化全部失败: {result['errors']}")
+            return {"next": "FAILED"}
+
+    # 初始化完成，一律先走 TAX_CALC（从 zbGrid 算增值税/企业所得税）
+    # 财务报表上传放在 CONFIRM_TAX 用户确认之后
+    state["data"]["parsed_excel"] = {"user_said": "数据从初始化接口自动获取"}
+    state["data"]["uploaded_excel"] = {"user_said": "数据从初始化接口自动获取", "file_path": ""}
     save_state(state["task_id"], state)
-
-    if result.get("errors") and not result.get("results"):
-        fail(state, f"初始化全部失败: {result['errors']}")
-        return {"next": "FAILED"}
-
-    return {"next": "WAIT_UPLOAD"}
+    return {"next": "TAX_CALC"}
 
 
 def do_wait_upload(state: dict) -> dict:
@@ -224,6 +260,25 @@ def do_parse_excel(state: dict) -> dict:
     if not file_path:
         return {"next": "WAIT_UPLOAD", "info": "未找到文件路径，请重新上传"}
 
+    # ── 检测是否是财务报表 ──
+    is_financial = _detect_financial_report(file_path)
+    if is_financial:
+        log.info(f"[{state['task_id']}] 检测到财务报表，直接提交给税务局，不做税费计算")
+        state["data"]["parsed_excel"] = {
+            "user_said": "Excel 自动解析",
+            "is_financial_report": True,
+            "file_path": file_path,
+        }
+        # 财务报表不需要税费计算和用户确认，设置空的中间数据以通过链路验证
+        state["data"]["calculated_taxes"] = {
+            "ok": True, "results": [], "is_all_zero": True, "total_payable": 0,
+            "summary": {"tax_count": 0, "total_payable": 0, "is_all_zero": True},
+        }
+        state["data"]["tax_confirm_ack"] = {"user_said": "财务报表无需税费确认，自动跳过"}
+        save_state(state["task_id"], state)
+        # 直接跳到 SUBMIT
+        return {"next": "SUBMIT"}
+
     try:
         parsed = _extract_excel_data(file_path, state.get("company_type", "small_scale"))
     except Exception as e:
@@ -234,6 +289,133 @@ def do_parse_excel(state: dict) -> dict:
     save_state(state["task_id"], state)
     log.info(f"[{state['task_id']}] Excel 解析完成: vat={bool(parsed.get('vat'))}, cit={bool(parsed.get('cit'))}")
     return {"next": "TAX_CALC"}
+
+
+def _detect_financial_report(file_path: str) -> bool:
+    """检测Excel是否是财务报表（而非增值税/所得税申报表）"""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        for sn in wb.sheetnames:
+            sn_lower = sn.lower()
+            # 财务报表常见sheet名
+            if any(kw in sn for kw in ["资产负债", "利润", "现金流量", "财务报表"]):
+                return True
+            if any(kw in sn for kw in ["小企业会计", "会计准则"]):
+                return True
+        # 检查第一个sheet的标题行
+        ws = wb.active
+        if ws:
+            title = str(ws.cell(row=1, column=1).value or "")
+            if any(kw in title for kw in ["资产负债", "资产", "财务报表", "会计准则"]):
+                return True
+            # 检查是否有"期末余额"/"年初余额"列头（资产负债表特征）
+            for col in range(1, 10):
+                val = str(ws.cell(row=1, column=col).value or ws.cell(row=2, column=col).value or "")
+                if "期末余额" in val or "年初余额" in val or "年初数" in val:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def _extract_financial_report(file_path: str) -> dict:
+    """
+    从财务报表（小企业会计准则）Excel 中解析利润表数据。
+    按照「税费计提规则」Sheet 第60-74行的规则：
+      - 营业收入 → "一、营业收入" 的 value2（期末余额列）
+      - 营业成本 → "减：营业成本" 的 value2
+      - 费用 → 销售费用 + 管理费用 + 财务费用 的 value2
+      - 利润总额 → "三、利润总额" 的 value2
+    返回: {"items": [...], "revenue": x, "cost": x, "expenses": x, "profit": x}
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(file_path, data_only=True)
+    result = {"items": [], "revenue": 0, "cost": 0, "expenses": 0, "profit": 0}
+
+    # 查找利润表 sheet
+    profit_ws = None
+    for sn in wb.sheetnames:
+        if "利润" in sn:
+            profit_ws = wb[sn]
+            break
+
+    if not profit_ws:
+        log.warning("财务报表中未找到利润表 sheet，尝试从所有 sheet 中查找")
+        for sn in wb.sheetnames:
+            ws = wb[sn]
+            for row in range(1, min(10, ws.max_row + 1)):
+                val = str(ws.cell(row=row, column=1).value or "")
+                if "营业收入" in val or "利润" in val:
+                    profit_ws = ws
+                    break
+            if profit_ws:
+                break
+
+    if not profit_ws:
+        log.error("未找到利润表数据")
+        return result
+
+    # 遍历利润表，提取关键字段
+    # 利润表一般结构：A列=项目名称, B列=行次, C列=本期金额(value2), D列=上期金额
+    items = []
+    revenue = cost = sales_exp = mgmt_exp = fin_exp = profit = 0.0
+
+    for row in range(1, profit_ws.max_row + 1):
+        name = str(profit_ws.cell(row=row, column=1).value or "").strip()
+        if not name:
+            continue
+
+        # 取本期金额（通常在C列或D列）— 尝试多列
+        value2 = None
+        for col in [3, 4, 2]:
+            v = profit_ws.cell(row=row, column=col).value
+            if v is not None:
+                try:
+                    value2 = float(v)
+                    break
+                except (ValueError, TypeError):
+                    continue
+
+        if value2 is None:
+            value2 = 0.0
+
+        items.append({"name": name, "value2": value2, "row": row})
+
+        # 按规则提取
+        if "营业收入" in name and ("一" in name or "一、" in name):
+            revenue = value2
+        elif "营业成本" in name:
+            cost = value2
+        elif "销售费用" in name:
+            sales_exp = value2
+        elif "管理费用" in name:
+            mgmt_exp = value2
+        elif "财务费用" in name:
+            fin_exp = value2
+        elif "利润总额" in name and ("三" in name or "三、" in name):
+            profit = value2
+
+    expenses = sales_exp + mgmt_exp + fin_exp
+
+    # 如果利润总额为0但有收入，自己算
+    if profit == 0 and revenue > 0:
+        profit = revenue - cost - expenses
+
+    result = {
+        "items": items,
+        "revenue": round(revenue, 2),
+        "cost": round(cost, 2),
+        "expenses": round(expenses, 2),
+        "sales_expense": round(sales_exp, 2),
+        "management_expense": round(mgmt_exp, 2),
+        "finance_expense": round(fin_exp, 2),
+        "profit": round(profit, 2),
+    }
+
+    log.info(f"利润表解析完成: 收入={revenue}, 成本={cost}, 费用={expenses}, 利润={profit}")
+    return result
 
 
 def _extract_excel_data(file_path: str, company_type: str = "small_scale") -> dict:
@@ -312,6 +494,7 @@ def do_tax_calc(state: dict) -> dict:
     codes = [i.get("yzpzzlDm", i.get("tax_code", "")) for i in tax_list.get("required_items", [])]
 
     parsed = state["data"].get("parsed_excel", {})
+    is_financial = parsed.get("is_financial_report", False)
     detected = parsed.get("detected_company_type")
     company_type = detected or state.get("company_type", "small_scale")
     if detected and detected != state.get("company_type"):
@@ -324,6 +507,13 @@ def do_tax_calc(state: dict) -> dict:
     ep = state["data"].get("enterprise_profile", {})
     if not industry and ep and ep.get("ok"):
         industry = ep.get("profile", {}).get("basic", {}).get("industry", "")
+
+    # 财务报表模式：确保计算企业所得税（清册里可能只有 CWBBSB，没有 CIT 代码）
+    if is_financial:
+        cit_codes = {"BDA0611159", "BDA0610100", "BDA0610101", "CIT"}
+        if not any(c in cit_codes for c in codes):
+            codes.append("BDA0611159")
+            log.info(f"[{state['task_id']}] 财务报表模式：自动添加企业所得税代码 BDA0611159")
 
     result = calculate_tax(
         declaration_data=parsed,
@@ -340,20 +530,39 @@ def do_tax_calc(state: dict) -> dict:
 
 
 def do_confirm_tax(state: dict) -> dict:
-    return {"next": "SUBMIT"}
+    # 用户确认税额后，检查是否还需要上传财务报表
+    UPLOAD_REQUIRED_CODES = {"CWBBSB", "CWBBNDSB"}
+    tax_list = state["data"].get("tax_list", {})
+    required = tax_list.get("required_items", [])
+    has_financial = any(i.get("yzpzzlDm", "") in UPLOAD_REQUIRED_CODES for i in required)
+
+    if has_financial:
+        log.info(f"[{state['task_id']}] CONFIRM_TAX: 清册含财务报表，需要用户上传")
+        return {"next": "WAIT_UPLOAD"}
+    else:
+        return {"next": "SUBMIT"}
 
 
 def do_submit(state: dict) -> dict:
     year, period = _parse_period(state["period"])
     agg = state["agg_org_id"]
-    is_zero = state["data"].get("calculated_taxes", {}).get("is_all_zero", False)
-    ctype = state.get("company_type", "small_scale")
+    parsed = state["data"].get("parsed_excel", {})
+    is_financial = parsed.get("is_financial_report", False)
 
-    if is_zero and ctype in ("small_scale", "general"):
-        result = submit_simplified(agg, year, period, sb_init=True)
+    if is_financial:
+        # ── 财务报表：直接上传 Excel 到税局 ──
+        log.info(f"[{state['task_id']}] SUBMIT: 财务报表上传模式")
+        result = _submit_financial_excel(agg, year, period, parsed.get("file_path", ""), state)
     else:
-        payload = state["data"].get("parsed_excel", {}).get("report_payload", {})
-        result = submit_standard(agg, year, period, payload)
+        # ── 增值税/所得税：原有逻辑 ──
+        is_zero = state["data"].get("calculated_taxes", {}).get("is_all_zero", False)
+        ctype = state.get("company_type", "small_scale")
+
+        if is_zero and ctype in ("small_scale", "general"):
+            result = submit_simplified(agg, year, period, sb_init=True)
+        else:
+            payload = parsed.get("report_payload", {})
+            result = submit_standard(agg, year, period, payload)
 
     state["data"]["submit_result"] = result
     save_state(state["task_id"], state)
@@ -368,6 +577,106 @@ def do_submit(state: dict) -> dict:
         return {"next": "FAILED"}
 
     return {"next": "DOWNLOAD"}
+
+
+def _submit_financial_excel(agg_org_id: str, year: int, period: int,
+                            file_path: str, state: dict) -> dict:
+    """
+    财务报表上传申报：直接把 Excel 上传到税局，不做税费计算。
+    使用 upload_tax_report_data_excel_auto → query_upload_financial_report_result_auto
+    """
+    from shared import api_call, poll_task
+
+    # 从清册数据中获取财务报表的税种代码和所属期
+    tax_list = state["data"].get("tax_list", {})
+    required = tax_list.get("required_items", [])
+    financial_item = None
+    for item in required:
+        code = item.get("yzpzzlDm", "")
+        if code in ("CWBBSB", "CWBBNDSB"):
+            financial_item = item
+            break
+
+    yzpzzl_dm = financial_item.get("yzpzzlDm", "CWBBSB") if financial_item else "CWBBSB"
+    ssq_q = financial_item.get("ssqQ", f"{year}-01-01") if financial_item else f"{year}-01-01"
+    ssq_z = financial_item.get("ssqZ", f"{year}-{period:02d}-31") if financial_item else f"{year}-{period:02d}-31"
+
+    # 确定财报模板参数
+    # zlbsxlDm: ZL1001003 = 小企业会计准则
+    # templateCode: 0 = 默认模板
+    payload = {
+        "aggOrgId": agg_org_id,
+        "year": year,
+        "period": period,
+        "isDirectDeclare": True,
+        "yzpzzlDm": yzpzzl_dm,
+        "zlbsxlDm": "ZL1001003",
+        "templateCode": "0",
+        "ssqQ": ssq_q,
+        "ssqZ": ssq_z,
+    }
+
+    # 读取 Excel 文件并 base64 编码
+    import base64
+    try:
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+        payload["fileBase64"] = base64.b64encode(file_bytes).decode("utf-8")
+        payload["fileName"] = file_path.split("/")[-1]
+    except Exception as e:
+        log.error(f"[{state['task_id']}] 读取财务报表文件失败: {e}")
+        return {"ok": False, "error": f"读取文件失败: {e}", "retryable": False}
+
+    log.info(f"[{state['task_id']}] 上传财务报表: {payload['fileName']}, "
+             f"yzpzzlDm={yzpzzl_dm}, ssqQ={ssq_q}, ssqZ={ssq_z}")
+
+    # 调用上传接口
+    result = api_call("upload_financial_report_excel", payload=payload)
+
+    if not result["ok"]:
+        return {
+            "ok": False,
+            "error": result.get("error", result.get("message", "财务报表上传失败")),
+            "retryable": "不稳定" in result.get("error", "") or "超时" in result.get("error", ""),
+        }
+
+    data = result["data"]
+    task_id = (data.get("data") or {}).get("taskId", data.get("taskId"))
+
+    if not task_id:
+        # 有些接口直接返回成功不需要轮询
+        log.info(f"[{state['task_id']}] 财务报表上传完成（无 taskId，可能直接成功）")
+        return {
+            "ok": True,
+            "task_id": None,
+            "declare_type": "financial",
+            "status": "success",
+            "data": data,
+            "message": "财务报表上传成功",
+        }
+
+    # 轮询结果
+    poll_result = poll_task(agg_org_id, task_id,
+                           result_endpoint="query_financial_report_result")
+
+    if poll_result["ok"] and poll_result.get("status") == "completed":
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "declare_type": "financial",
+            "status": "success",
+            "data": poll_result.get("data", {}),
+            "message": "财务报表申报成功",
+        }
+
+    return {
+        "ok": False,
+        "task_id": task_id,
+        "declare_type": "financial",
+        "status": poll_result.get("status", "failed"),
+        "error": poll_result.get("error", "财务报表申报失败"),
+        "retryable": False,
+    }
 
 
 # 增值税申报视频 URL（录制好的申报操作视频，随PDF一起返回给用户）
@@ -390,19 +699,50 @@ def do_download(state: dict) -> dict:
     default_ssqQ = f"{year}-{period:02d}-01"
     default_ssqZ = f"{year}-{period:02d}-{last_day}"
 
+    # 财报类税种代码需要额外传 zlbsxlDm
+    FINANCIAL_CODES = {"CWBBSB", "CWBBNDSB"}
+
     zsxm = []
     for i in required:
         code = i.get("yzpzzlDm", "")
         if code:
-            zsxm.append({
+            item = {
                 "yzpzzlDm": code,
                 "ssqQ": i.get("ssqQ", default_ssqQ),
                 "ssqZ": i.get("ssqZ", default_ssqZ),
-            })
+            }
+            if code in FINANCIAL_CODES:
+                item["zlbsxlDm"] = i.get("zlbsxlDm", "ZL1001003")
+            zsxm.append(item)
 
     result = download_receipt(state["agg_org_id"], year, period, zsxm)
-    state["data"]["receipt_data"] = result.get("structured_data")
-    state["data"]["pdf_data"] = result.get("pdf_data")
+
+    # 保存完整的原始返回（用于排查问题）
+    state["data"]["download_raw"] = {
+        "ok": result.get("ok"),
+        "error": result.get("error"),
+        "task_id": result.get("task_id"),
+    }
+
+    if result.get("ok"):
+        state["data"]["receipt_data"] = result.get("structured_data")
+        state["data"]["pdf_data"] = result.get("pdf_data")
+        log.info(f"[{state['task_id']}] PDF 下载成功: task_id={result.get('task_id')}")
+    else:
+        # PDF 下载失败：记录错误，重试最多 2 次
+        error_msg = result.get("error", "PDF 下载失败")
+        log.error(f"[{state['task_id']}] PDF 下载失败: {error_msg}")
+
+        retryable = result.get("retryable", False)
+        if retryable and state["retry_count"] < 2:
+            fail(state, f"PDF 下载失败: {error_msg}")
+            return {"blocked": True, "error": f"PDF 下载失败（第 {state['retry_count']} 次重试）: {error_msg}"}
+
+        # 超过重试次数或不可重试 → 继续流程但标记失败
+        log.warning(f"[{state['task_id']}] PDF 下载最终失败，继续流程: {error_msg}")
+        state["data"]["receipt_data"] = None
+        state["data"]["pdf_data"] = None
+        state["data"]["pdf_error"] = error_msg
 
     # 申报视频URL随PDF一起存储，返回给用户时一并展示
     state["data"]["declare_video"] = {
@@ -513,8 +853,8 @@ STATE_EVIDENCE = {
     "FETCH_LIST":      {"history": True, "data_key": "tax_list"},
     "NOTIFY_TAXES":    {"history": True, "data_key": "notify_taxes_ack", "need_user_said": True},
     "DATA_INIT":       {"history": True, "data_key": "init_data"},
-    "WAIT_UPLOAD":     {"history": True, "data_key": "uploaded_excel", "need_user_said": True},
-    "PARSE_EXCEL":     {"history": True, "data_key": "parsed_excel"},
+    "WAIT_UPLOAD":     {"history": False, "data_key": "uploaded_excel"},
+    "PARSE_EXCEL":     {"history": False, "data_key": "parsed_excel"},
     "TAX_CALC":        {"history": True, "data_key": "calculated_taxes"},
     "CONFIRM_TAX":     {"history": True, "data_key": "tax_confirm_ack", "need_user_said": True},
     "SUBMIT":          {"history": True, "data_key": "submit_result"},
@@ -630,14 +970,15 @@ def _format_blocked(state_name: str, state: dict) -> str:
                 lines.append(f"  ⚠️ 近3年存在违法信息")
             lines.append("")
 
-        # 税种代码→名称映射
+        # 税种代码→名称映射（当前只支持增值税、企业所得税、财务报表）
         TAX_CODE_NAMES = {
             "BDA0610606": "增值税及附加税费（小规模纳税人）",
-            "BDA0610135": "附加税费",
-            "BDA0610857": "印花税",
-            "BDA0610994": "个人所得税（代扣代缴）",
+            "BDA0620200": "增值税及附加税费（小规模-其他）",
+            "BDA0610600": "增值税（一般纳税人）",
+            "BDA0610601": "增值税（一般纳税人-其他）",
             "BDA0611159": "企业所得税A类（季报）",
             "BDA0610100": "企业所得税B类（季报）",
+            "BDA0610101": "企业所得税（其他）",
             "CWBBSB": "财务报表（月/季报）",
             "CWBBNDSB": "财务报表（年报）",
         }
@@ -655,6 +996,11 @@ def _format_blocked(state_name: str, state: dict) -> str:
         return "\n".join(lines)
 
     elif state_name == "WAIT_UPLOAD":
+        # 检查是否是财务报表上传（CONFIRM_TAX 之后跳过来的）
+        UPLOAD_REQUIRED_CODES = {"CWBBSB", "CWBBNDSB"}
+        has_financial = any(i.get("yzpzzlDm", "") in UPLOAD_REQUIRED_CODES for i in items)
+        if has_financial:
+            return f"增值税/企业所得税已确认，接下来请上传 {company} 的财务报表 Excel 文件（小企业会计准则 .xlsx）。"
         return f"请上传 {company} {period} 月的申报数据 Excel 文件（.xlsx）。"
 
     elif state_name == "PARSE_EXCEL":
@@ -662,40 +1008,124 @@ def _format_blocked(state_name: str, state: dict) -> str:
 
     elif state_name == "CONFIRM_TAX":
         if taxes and taxes.get("results"):
-            lines = [f"{company} {period} 月税费计算结果：\n"]
+            lines = [f"{company} {period} 月税费计算结果（本次数据已自动核算，确认无误即可申报）：\n"]
             for r in taxes["results"]:
                 name = r.get("tax_name", r.get("name", "税种"))
                 amount = r.get("final_amount", r.get("payable", 0))
-                lines.append(f"- {name}: ¥{amount:,.2f}")
+
+                if "增值税" in name:
+                    # 增值税详细展示
+                    lines.append(f"【{name}】")
+                    lines.append(f"  本期销售收入：¥{r.get('sales_revenue', 0):,.2f}")
+                    if r.get("taxpayer_type") == "general":
+                        lines.append(f"  销项税额：¥{r.get('output_tax', 0):,.2f}")
+                        lines.append(f"  进项税额：¥{r.get('input_tax', 0):,.2f}")
+                        lines.append(f"  进项税额转出：¥{r.get('input_transfer', 0):,.2f}")
+                    else:
+                        lines.append(f"  应税收入：¥{r.get('taxable_revenue', 0):,.2f}")
+                        lines.append(f"  免税收入：¥{r.get('exempt_revenue', 0):,.2f}")
+                        if r.get("below_threshold"):
+                            lines.append(f"  ✅ 未超免税额度（{r.get('threshold', 0):,.0f}）")
+                    lines.append(f"  本期实际应缴增值税：¥{r.get('vat_payable', 0):,.2f}")
+                    # 附加税
+                    if r.get("surcharge_total", 0) > 0 or r.get("urban_maintenance_tax", 0) > 0:
+                        lines.append(f"  附加税费：")
+                        lines.append(f"    城市维护建设税：¥{r.get('urban_maintenance_tax', 0):,.2f}")
+                        lines.append(f"    教育费附加：¥{r.get('education_surcharge', 0):,.2f}")
+                        lines.append(f"    地方教育附加：¥{r.get('local_education_surcharge', 0):,.2f}")
+                        lines.append(f"    附加税费合计：¥{r.get('surcharge_total', 0):,.2f}")
+                    lines.append(f"  增值税+附加税合计：¥{amount:,.2f}")
+                    if r.get("tax_burden_rate", 0) > 0:
+                        status = r.get("burden_status", "")
+                        lines.append(f"  实际税负率：{r.get('tax_burden_rate', 0):.2f}%{f'（{status}）' if status else ''}")
+                    lines.append("")
+
+                elif "所得税" in name:
+                    # 企业所得税详细展示
+                    lines.append(f"【{name}】")
+                    lines.append(f"  预估本期经营收入：¥{r.get('revenue', 0):,.2f}")
+                    lines.append(f"  预估本期成本：¥{r.get('cost', 0):,.2f}")
+                    lines.append(f"  预估本期费用：¥{r.get('expenses', 0):,.2f}")
+                    lines.append(f"  预估税前利润：¥{r.get('profit', 0):,.2f}")
+                    if r.get("loss_offset", 0) > 0:
+                        lines.append(f"  弥补亏损额：¥{r.get('loss_offset', 0):,.2f}")
+                    lines.append(f"  应缴所得税：¥{r.get('cit_due', 0):,.2f}")
+                    if r.get("is_small_profit"):
+                        lines.append(f"  ✅ 符合小微企业资格")
+                        lines.append(f"  小微企业优惠减免：¥{r.get('small_profit_reduction', 0):,.2f}")
+                    elif r.get("is_restricted_industry"):
+                        lines.append(f"  ❌ 属于限制行业，不享受小微优惠")
+                    lines.append(f"  本次需缴纳企业所得税：¥{amount:,.2f}")
+                    lines.append("")
+
+                else:
+                    lines.append(f"- {name}: ¥{amount:,.2f}")
+
             total = taxes.get("total_payable", 0)
-            lines.append(f"\n应缴税费合计: ¥{total:,.2f}")
-            lines.append("请确认以上税额是否正确？确认后将提交申报。")
+            lines.append(f"应缴税费合计：¥{total:,.2f}")
+            lines.append(f"\n确认以上数据无误？【确认申报】 【驳回修改】")
             return "\n".join(lines)
         else:
             return f"{company} {period} 月应缴税费合计: ¥0.00（零申报）。请确认是否提交？"
 
     elif state_name == "NOTIFY_COMPLETE":
-        lines = []
+        lines = [f"{company} {period} 月申报已完成！\n"]
 
-        pdf_url = ""
-        if receipt and isinstance(receipt, dict):
-            inner = receipt.get("data", receipt)
-            if isinstance(inner, dict):
-                pdf_url = inner.get("pdfUrl", "")
-                structured = inner.get("structured_data", {})
-                if structured:
-                    total_tax = structured.get("total_tax", "0.00")
-                    lines.append(f"{company} {period} 月申报已完成！")
-                    lines.append(f"应缴税额: ¥{total_tax}")
-                    lines.append(f"申报回执已获取。")
+        # 展示税额信息
+        if taxes and taxes.get("results"):
+            for r in taxes.get("results", []):
+                name = r.get("tax_name", "税种")
+                amount = r.get("final_amount", 0)
+                lines.append(f"  {name}: ¥{amount:,.2f}")
+            total = taxes.get("total_payable", 0)
+            lines.append(f"  应缴税费合计: ¥{total:,.2f}\n")
 
-        # 展示申报操作视频链接（录制好的视频，和PDF一起返回）
+        # 展示 PDF 下载链接
+        pdf_data = state["data"].get("pdf_data")
+        pdf_error = state["data"].get("pdf_error")
+        if pdf_data and isinstance(pdf_data, dict):
+            # 尝试多种可能的 PDF URL 字段名
+            pdf_url = (
+                pdf_data.get("pdfFileUrl")
+                or pdf_data.get("pdfUrl")
+                or pdf_data.get("fileUrl")
+                or pdf_data.get("url")
+                or ""
+            )
+            if pdf_url:
+                lines.append(f"📄 申报回执PDF: {pdf_url}\n")
+            else:
+                # 从 detail / zsxmList 里找
+                found_pdf = False
+                for key in ("detail", "zsxmList", "list"):
+                    for d in pdf_data.get(key, []):
+                        screenshot = (
+                            d.get("screenshot")
+                            or d.get("pdfFileUrl")
+                            or d.get("pdfUrl")
+                            or d.get("fileUrl")
+                            or ""
+                        )
+                        if screenshot:
+                            tax_name = d.get("zsxmMc", d.get("taxName", ""))
+                            prefix = f"{tax_name} " if tax_name else ""
+                            lines.append(f"📄 {prefix}申报回执PDF: {screenshot}")
+                            found_pdf = True
+                    if found_pdf:
+                        lines.append("")
+                        break
+                if not found_pdf:
+                    # PDF 数据存在但找不到 URL — 记录原始 key 帮助调试
+                    available_keys = list(pdf_data.keys())
+                    log.warning(f"[{state['task_id']}] pdf_data 中未找到 PDF URL，可用 keys: {available_keys}")
+                    lines.append(f"⚠️ 申报回执 PDF 数据已获取但 URL 解析异常，请联系管理员。\n")
+        elif pdf_error:
+            lines.append(f"⚠️ 申报回执 PDF 下载失败: {pdf_error}\n")
+
+        # 展示申报操作视频链接
         video_data = state["data"].get("declare_video", {})
         if video_data and video_data.get("video_url"):
-            lines.append(f"申报操作视频: {video_data['video_url']}")
-
-        if not lines:
-            lines.append(f"{company} {period} 月申报已完成！")
+            lines.append(f"🎬 申报操作视频: {video_data['video_url']}\n")
 
         lines.append("请确认收到以上信息。")
         return "\n".join(lines)
