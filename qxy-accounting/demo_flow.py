@@ -69,8 +69,11 @@ def step1_login():
     log.info("【第一步】登录")
     try:
         from login import ensure_logged_in
-        r = ensure_logged_in()
-        return _ok("第一步完成：已成功登录") if r else _err("第一步失败：登录失败")
+        # 用任意企业的 agg_org_id 登录即可
+        first_agg = next(iter(COMPANIES.values()))["agg_org_id"]
+        r = ensure_logged_in(first_agg)
+        ok = r.get("ok", False) if isinstance(r, dict) else bool(r)
+        return _ok("第一步完成：已成功登录") if ok else _err(f"第一步失败：登录失败 - {r}")
     except Exception as e:
         return _err(f"第一步失败：{e}")
 
