@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-demo_flow.py — 四步演示流程脚本
+demo_flow.py — 五步演示流程脚本
 
 严格按照演示步骤执行：
   第一步：企业画像（005 天津市金万翔建材科技有限公司）
   第二步：获取清册（001-005，5家）
   第三步：财务报表Excel上传申报（007 深圳交易研究院有限公司，小企业会计准则）
-          - 无file_path时提示用户上传
-          - 有file_path时上传并直接申报，返回"已成功申报"
-  第四步：增值税批量初始化（001-005）→ 列出金额等数据给用户确认
+  第四步：企业所得税A初始化+申报提交（006 中邮证券有限责任公司天津分公司）
+  第五步：增值税批量初始化（001-005）→ 列出金额等数据给用户确认
           → 批量申报提交（001-005）
           → PDF下载（005）+ 视频直播（005）
 
@@ -17,10 +16,11 @@ demo_flow.py — 四步演示流程脚本
   python3 demo_flow.py '{"action":"step2"}'
   python3 demo_flow.py '{"action":"step3"}'
   python3 demo_flow.py '{"action":"step3","file_path":"/path/to/file.xlsx"}'
-  python3 demo_flow.py '{"action":"step4_vat_init"}'
-  python3 demo_flow.py '{"action":"step4_vat_submit"}'
-  python3 demo_flow.py '{"action":"step4_pdf"}'
-  python3 demo_flow.py '{"action":"step4_video"}'
+  python3 demo_flow.py '{"action":"step4"}'
+  python3 demo_flow.py '{"action":"step5_vat_init"}'
+  python3 demo_flow.py '{"action":"step5_vat_submit"}'
+  python3 demo_flow.py '{"action":"step5_pdf"}'
+  python3 demo_flow.py '{"action":"step5_video"}'
   python3 demo_flow.py '{"action":"run_all","file_path":"/path/to/file.xlsx"}'
 """
 
@@ -143,11 +143,39 @@ def step3_upload_excel(file_path=""):
 
 
 # ══════════════════════════════════════════════════════════
-# 第四步-a：增值税批量初始化（001-005）
+# 第四步：企业所得税A初始化+申报提交（006 中邮证券）
+# 税种代码：BDA0611159（A类季报）
+# ══════════════════════════════════════════════════════════
+def step4_cit():
+    log.info("【第四步】企业所得税A初始化 + 申报提交")
+    cid = "QXY100031100000006"
+    c = _ci(cid)
+    try:
+        from init_declaration import init_declaration
+        from submit_declaration import submit_simplified
+
+        # 初始化：企业所得税A类（BDA0611159）
+        log.info(f"企业所得税A初始化: {c['name']}")
+        ir = init_declaration(c["agg_org_id"], YEAR, PERIOD, [{"yzpzzlDm": "BDA0611159"}])
+        if not ir.get("ok") and not ir.get("results"):
+            return _err(f"第四步失败：初始化失败 - {ir.get('errors', '未知错误')}")
+
+        # 申报提交
+        log.info(f"企业所得税A申报提交: {c['name']}")
+        sr = submit_simplified(c["agg_org_id"], YEAR, PERIOD, sb_init=True)
+        if sr.get("ok"):
+            return _ok(f"第四步完成：{c['name']}（{cid}）企业所得税A初始化并申报成功")
+        return _err(f"第四步失败：申报提交失败 - {sr.get('error', '未知错误')}")
+    except Exception as e:
+        return _err(f"第四步失败：{e}")
+
+
+# ══════════════════════════════════════════════════════════
+# 第五步-a：增值税批量初始化（001-005）
 # 列出各企业申报金额等数据，供用户确认
 # ══════════════════════════════════════════════════════════
-def step4_vat_init():
-    log.info("【第四步】增值税批量初始化")
+def step5_vat_init():
+    log.info("【第五步】增值税批量初始化")
     try:
         from init_declaration import init_declaration
         lines = []
@@ -158,16 +186,16 @@ def step4_vat_init():
             ok = ir.get("ok") or bool(ir.get("results"))
             status = "成功" if ok else f"失败 - {ir.get('errors', '未知错误')}"
             lines.append(f"  {c['name']}：初始化{status}")
-        return _ok(f"第四步（批量初始化）完成：\n\n" + "\n".join(lines) + "\n\n请确认以上信息，确认后将提交申报。")
+        return _ok(f"第五步（批量初始化）完成：\n\n" + "\n".join(lines) + "\n\n请确认以上信息，确认后将提交申报。")
     except Exception as e:
-        return _err(f"第四步（批量初始化）失败：{e}")
+        return _err(f"第五步（批量初始化）失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
-# 第四步-b：增值税批量申报提交（001-005）
+# 第五步-b：增值税批量申报提交（001-005）
 # ══════════════════════════════════════════════════════════
-def step4_vat_submit():
-    log.info("【第四步】增值税批量申报提交")
+def step5_vat_submit():
+    log.info("【第五步】增值税批量申报提交")
     try:
         from submit_declaration import submit_simplified
         lines = []
@@ -177,16 +205,16 @@ def step4_vat_submit():
             sr = submit_simplified(c["agg_org_id"], YEAR, PERIOD, sb_init=True)
             status = "成功" if sr.get("ok") else f"失败 - {sr.get('error', '未知错误')}"
             lines.append(f"  {c['name']}：申报{status}")
-        return _ok(f"第四步（批量申报提交）完成：\n\n" + "\n".join(lines))
+        return _ok(f"第五步（批量申报提交）完成：\n\n" + "\n".join(lines))
     except Exception as e:
-        return _err(f"第四步（批量申报提交）失败：{e}")
+        return _err(f"第五步（批量申报提交）失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
-# 第四步-c：PDF下载（005 金万翔）
+# 第五步-c：PDF下载（005 金万翔）
 # ══════════════════════════════════════════════════════════
-def step4_pdf():
-    log.info("【第四步】增值税PDF下载")
+def step5_pdf():
+    log.info("【第五步】增值税PDF下载")
     cid = "QXY100031100000005"
     c = _ci(cid)
     try:
@@ -223,24 +251,24 @@ def step4_pdf():
                     if pdf_url:
                         break
 
-            msg = f"第四步（PDF下载）完成：{c['name']}（{cid}）"
+            msg = f"第五步（PDF下载）完成：{c['name']}（{cid}）"
             if pdf_url:
                 msg += f"\n\nPDF链接: {pdf_url}"
             return _ok(msg)
-        return _err(f"第四步失败：PDF下载失败 - {r.get('error', '未知错误')}")
+        return _err(f"第五步失败：PDF下载失败 - {r.get('error', '未知错误')}")
     except Exception as e:
-        return _err(f"第四步失败：{e}")
+        return _err(f"第五步失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
-# 第四步-d：视频直播（005 金万翔）— 静态链接
+# 第五步-d：视频直播（005 金万翔）— 静态链接
 # ══════════════════════════════════════════════════════════
-def step4_video():
+def step5_video():
     url = ("http://qxy-oss-robot-product.qixiangyun.com/VIDEO/"
            "etax-agg-product_0d17b8be20214c11a52ccb869fb185ce_1773040951439.webm"
            "?OSSAccessKeyId=LTAI5tMHcomKiHbKRhS2uU8X&Expires=1804144951"
            "&Signature=4GzUiutzNNoMGMtL%2BCt/%2Bk9qWcY%3D")
-    return _ok(f"第四步（视频直播）完成：天津市金万翔建材科技有限公司（005）\n\n申报操作视频: {url}")
+    return _ok(f"第五步（视频直播）完成：天津市金万翔建材科技有限公司（005）\n\n申报操作视频: {url}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -251,10 +279,11 @@ def run_all(file_path=""):
         ("step1",            lambda: step1_profile()),
         ("step2",            lambda: step2_fetch_list()),
         ("step3",            lambda: step3_upload_excel(file_path)),
-        ("step4_vat_init",   lambda: step4_vat_init()),
-        ("step4_vat_submit", lambda: step4_vat_submit()),
-        ("step4_pdf",        lambda: step4_pdf()),
-        ("step4_video",      lambda: step4_video()),
+        ("step4",            lambda: step4_cit()),
+        ("step5_vat_init",   lambda: step5_vat_init()),
+        ("step5_vat_submit", lambda: step5_vat_submit()),
+        ("step5_pdf",        lambda: step5_pdf()),
+        ("step5_video",      lambda: step5_video()),
     ]
     results = []
     for name, fn in steps:
@@ -278,14 +307,15 @@ def run_all(file_path=""):
 # CLI 入口
 # ══════════════════════════════════════════════════════════
 ACTION_MAP = {
-    "step1":           lambda a: step1_profile(),
-    "step2":           lambda a: step2_fetch_list(),
-    "step3":           lambda a: step3_upload_excel(a.get("file_path", "")),
-    "step4_vat_init":  lambda a: step4_vat_init(),
-    "step4_vat_submit": lambda a: step4_vat_submit(),
-    "step4_pdf":       lambda a: step4_pdf(),
-    "step4_video":     lambda a: step4_video(),
-    "run_all":         lambda a: run_all(a.get("file_path", "")),
+    "step1":            lambda a: step1_profile(),
+    "step2":            lambda a: step2_fetch_list(),
+    "step3":            lambda a: step3_upload_excel(a.get("file_path", "")),
+    "step4":            lambda a: step4_cit(),
+    "step5_vat_init":   lambda a: step5_vat_init(),
+    "step5_vat_submit": lambda a: step5_vat_submit(),
+    "step5_pdf":        lambda a: step5_pdf(),
+    "step5_video":      lambda a: step5_video(),
+    "run_all":          lambda a: run_all(a.get("file_path", "")),
 }
 
 if __name__ == "__main__":

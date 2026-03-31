@@ -658,29 +658,39 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 
 ---
 
-### 演示第四步：增值税全流程（001~005，5家 + 金万翔PDF和视频）
+### 演示第四步：企业所得税A初始化+申报（006 中邮证券有限责任公司天津分公司）
+
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4"}'
+```
+
+自动完成企业所得税A类（BDA0611159）的初始化和申报提交，展示结果给用户。
+
+---
+
+### 演示第五步：增值税全流程（001~005，5家 + 金万翔PDF和视频）
 
 此步包含多个子步骤，严格按顺序执行：
 
-**4a. 增值税批量初始化（5家）**
+**5a. 增值税批量初始化（5家）**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_vat_init"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5_vat_init"}'
 ```
 返回各企业初始化数据（申报金额等），**列出给用户确认**后再继续。
 
-**4b. 增值税批量申报提交（用户确认后）**
+**5b. 增值税批量申报提交（用户确认后）**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_vat_submit"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5_vat_submit"}'
 ```
 
-**4c. PDF下载（005 天津市金万翔建材科技有限公司）**
+**5c. PDF下载（005 天津市金万翔建材科技有限公司）**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_pdf"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5_pdf"}'
 ```
 
-**4d. 视频直播（005 天津市金万翔建材科技有限公司）**
+**5d. 视频直播（005 天津市金万翔建材科技有限公司）**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_video"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5_video"}'
 ```
 
 ---
@@ -691,7 +701,8 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 第一步：企业画像（005 金万翔）
 第二步：获取清册（001~005 批量5家）
 第三步：财报Excel上传申报（007 交易研究院）→ 等用户上传 → 返回"已成功申报"
-第四步：增值税初始化（001~005 批量5家）→ 列出金额数据 → 等用户确认
+第四步：企业所得税A初始化+申报（006 中邮证券）→ 自动完成
+第五步：增值税初始化（001~005 批量5家）→ 列出金额数据 → 等用户确认
       → 增值税申报提交（001~005 批量5家）
       → PDF下载（005 金万翔）
       → 申报视频（005 金万翔）
@@ -700,7 +711,7 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 ### 用户交互节点（需要停下来等用户回复的地方）
 
 1. **第三步阶段1后**：等用户上传财务报表Excel
-2. **第四步 4a 后**：展示增值税初始化数据（金额等），等用户确认申报
+2. **第五步 5a 后**：展示增值税初始化数据（金额等），等用户确认申报
 
 ### 沙箱税号速查
 
@@ -711,6 +722,7 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 | QXY100031100000003 | 5208296132444224 | 增值税-上海瀚海商贸（0申报）|
 | QXY100031100000004 | 5208296673559936 | 增值税-深圳前海新能源（0申报）|
 | QXY100031100000005 | 5208297141358272 | 增值税-天津金万翔建材（有数申报）|
+| QXY100031100000006 | 5208297482143808 | 企业所得税A-中邮证券（0申报）|
 | QXY100031100000007 | 5208297826012864 | 财务报表上传-深圳交易研究院 |
 
 **规则不变**：取每步返回 JSON 中的 `user_message` 发给用户，不要发 JSON 本身。
