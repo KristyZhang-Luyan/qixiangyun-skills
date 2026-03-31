@@ -158,7 +158,7 @@ def step4_cit():
     c = _ci(cid)
     try:
         from init_declaration import init_declaration
-        from submit_declaration import submit_standard
+        from submit_declaration import submit_simplified
 
         # 初始化：企业所得税A类（BDA0611159）
         log.info(f"企业所得税A初始化: {c['name']}")
@@ -166,19 +166,9 @@ def step4_cit():
         if not ir.get("ok") and not ir.get("results"):
             return _err(f"第四步失败：初始化失败 - {ir.get('errors', '未知错误')}")
 
-        # 申报提交：按 writeTaxExcelData 接口规范，通过 zsxmList 提交
+        # 申报提交
         log.info(f"企业所得税A申报提交: {c['name']}")
-        # 企业所得税A季报：ssqQ 为季度首日，ssqZ 为季度末日
-        sr = submit_standard(c["agg_org_id"], YEAR, PERIOD, report_data={
-            "zsxmList": [{
-                "yzpzzlDm": "BDA0611159",
-                "ssqQ": f"{YEAR}-01-01",
-                "ssqZ": SSQ_Z,
-                "isDirectDeclare": True,
-                "gzDeclare": 1,
-            }],
-            "usePresetDialog": True,
-        }, direct_declare=True)
+        sr = submit_simplified(c["agg_org_id"], YEAR, PERIOD, sb_init=True)
         if sr.get("ok"):
             return _ok(f"第四步完成：{c['name']}（{cid}）企业所得税A初始化并申报成功")
         return _err(f"第四步失败：申报提交失败 - {sr.get('error', '未知错误')}")
@@ -190,6 +180,33 @@ def step4_cit():
 # 第五步-a：增值税批量初始化（001-005）
 # 列出各企业申报金额等数据，供用户确认
 # ══════════════════════════════════════════════════════════
+def _extract_vat_amounts(ir):
+    """从增值税初始化结果中提取关键金额"""
+    for res in ir.get("results", []):
+        if res.get("status") == "initialized" and res.get("init_data"):
+            d = res["init_data"]
+            init = d.get("data", {}).get("initData", d.get("initData", {}))
+            if not isinstance(init, dict):
+                return None
+            # 主表
+            zb = init.get("zzssyyybnsrzb", {})
+            rows = zb.get("zbGrid", {}).get("zbGridlbVO", [])
+            row = rows[0] if rows else {}  # 本月数
+            # 附加税合计
+            fj = init.get("fjssbb", {})
+            hj = fj.get("hj", {})
+            return {
+                "销售额": row.get("yshwxse", "0.00"),
+                "销项税额": row.get("xxse", "0.00"),
+                "进项税额": row.get("jxse", "0.00"),
+                "应纳税额": row.get("ynse", "0.00"),
+                "本期应补退税额": row.get("bqybtse", "0.00"),
+                "附加税应纳": hj.get("bqynsehj", "0.00"),
+                "附加税应补": hj.get("bqybsehj", "0.00"),
+            }
+    return None
+
+
 def step5_vat_init():
     log.info("【第五步】增值税批量初始化")
     try:
@@ -200,9 +217,22 @@ def step5_vat_init():
             log.info(f"增值税初始化: {c['name']}")
             ir = init_declaration(c["agg_org_id"], YEAR, PERIOD, [{"yzpzzlDm": "BDA0610606"}])
             ok = ir.get("ok") or bool(ir.get("results"))
-            status = "成功" if ok else f"失败 - {ir.get('errors', '未知错误')}"
-            lines.append(f"  {c['name']}：初始化{status}")
-        return _ok(f"第五步（批量初始化）完成：\n\n" + "\n".join(lines) + "\n\n请确认以上信息，确认后将提交申报。")
+            if ok:
+                amounts = _extract_vat_amounts(ir)
+                if amounts:
+                    ybt = amounts["本期应补退税额"]
+                    fj = amounts["附加税应补"]
+                    lines.append(
+                        f"  {c['name']}：初始化成功\n"
+                        f"    销售额: {amounts['销售额']}  销项税额: {amounts['销项税额']}  进项税额: {amounts['进项税额']}\n"
+                        f"    应纳税额: {amounts['应纳税额']}  本期应补(退)税额: {ybt}\n"
+                        f"    附加税应纳: {amounts['附加税应纳']}  附加税应补: {fj}"
+                    )
+                else:
+                    lines.append(f"  {c['name']}：初始化成功（未获取到金额明细）")
+            else:
+                lines.append(f"  {c['name']}：初始化失败 - {ir.get('errors', '未知错误')}")
+        return _ok(f"第五步（批量初始化）完成：\n\n" + "\n".join(lines) + "\n\n请确认以上申报数据，确认后将提交申报。")
     except Exception as e:
         return _err(f"第五步（批量初始化）失败：{e}")
 
