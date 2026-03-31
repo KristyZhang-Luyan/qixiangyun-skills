@@ -158,7 +158,6 @@ def step4_cit():
     c = _ci(cid)
     try:
         from init_declaration import init_declaration
-        from submit_declaration import submit_simplified
 
         # 初始化：企业所得税A类（BDA0611159）
         log.info(f"企业所得税A初始化: {c['name']}")
@@ -166,12 +165,42 @@ def step4_cit():
         if not ir.get("ok") and not ir.get("results"):
             return _err(f"第四步失败：初始化失败 - {ir.get('errors', '未知错误')}")
 
-        # 申报提交
+        # 从初始化结果中提取 initData
+        init_data = _extract_init_data(ir)
+        if not init_data:
+            return _err("第四步失败：初始化成功但未提取到 initData")
+
+        # 修正所属期：企业所得税为季报，所属期应为当季起止
+        cit_ssq_q = f"{YEAR}-01-01"
+        cit_ssq_z = f"{YEAR}-{PERIOD:02d}-{LAST_DAY}"
+        nsrxx = init_data.get("a200000Ywbd", {}).get("nsrxxForm")
+        if nsrxx:
+            nsrxx["skssqq"] = cit_ssq_q
+            nsrxx["skssqz"] = cit_ssq_z
+            log.info(f"已修正所属期: {cit_ssq_q} ~ {cit_ssq_z}")
+
+        # 申报提交：使用 tax_data 直接申报（企业所得税用 sdsData 类型）
         log.info(f"企业所得税A申报提交: {c['name']}")
-        sr = submit_simplified(c["agg_org_id"], YEAR, PERIOD, sb_init=True)
-        if sr.get("ok"):
-            return _ok(f"第四步完成：{c['name']}（{cid}）企业所得税A初始化并申报成功")
-        return _err(f"第四步失败：申报提交失败 - {sr.get('error', '未知错误')}")
+        payload = {
+            "aggOrgId": c["agg_org_id"],
+            "year": YEAR,
+            "period": PERIOD,
+            "isDirectDeclare": True,
+            "tax_type": "sdsData",
+            "tax_data": init_data,
+        }
+        r = api_call("upload_tax_report", payload=payload)
+        if not r.get("ok"):
+            return _err(f"第四步失败：申报提交失败 - {r.get('error', r.get('message', '未知错误'))}")
+
+        data = r.get("data", {})
+        tid = (data.get("data") or {}).get("taskId", data.get("taskId"))
+        if tid:
+            pr = poll_task(c["agg_org_id"], tid, result_endpoint="query_tax_report_result")
+            if pr.get("ok") and pr.get("status") == "completed":
+                return _ok(f"第四步完成：{c['name']}（{cid}）企业所得税A初始化并申报成功")
+            return _err(f"第四步失败：申报轮询失败 - {pr.get('error', '状态异常')}")
+        return _err("第四步失败：申报提交未返回 taskId")
     except Exception as e:
         return _err(f"第四步失败：{e}")
 

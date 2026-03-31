@@ -179,11 +179,13 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 ```bash
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5_pdf"}'
 ```
+**⛔ 返回的 user_message 中包含 PDF 链接，必须原样展示给用户，不能省略链接。**
 
 **5d. 视频直播（005 金万翔）**
 ```bash
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5_video"}'
 ```
+**⛔ 返回的 user_message 中包含视频链接，必须原样展示给用户，不能省略链接。**
 
 **或者一键执行全部步骤（第三步会暂停等用户上传文件，第五步会暂停等用户确认）：**
 ```bash
