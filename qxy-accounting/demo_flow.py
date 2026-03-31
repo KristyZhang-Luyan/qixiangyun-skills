@@ -394,7 +394,7 @@ def step5_pdf():
 
             msg = f"第五步（PDF下载）完成：{c['name']}（{cid}）"
             if pdf_url:
-                msg += f"\n\n【请将下方链接完整发送给用户，不可省略】\nPDF下载链接: {pdf_url}"
+                msg += f"\n\n[点击下载PDF申报回执]({pdf_url})"
             return _ok(msg)
         return _err(f"第五步失败：PDF下载失败 - {r.get('error', '未知错误')}")
     except Exception as e:
@@ -409,7 +409,7 @@ def step5_video():
            "etax-agg-product_0d17b8be20214c11a52ccb869fb185ce_1773040951439.webm"
            "?OSSAccessKeyId=LTAI5tMHcomKiHbKRhS2uU8X&Expires=1804144951"
            "&Signature=4GzUiutzNNoMGMtL%2BCt/%2Bk9qWcY%3D")
-    return _ok(f"第五步（视频直播）完成：天津市金万翔建材科技有限公司（005）\n\n【请将下方链接完整发送给用户，不可省略】\n申报操作视频链接: {url}")
+    return _ok(f"第五步（视频直播）完成：天津市金万翔建材科技有限公司（005）\n\n[点击观看申报操作视频]({url})")
 
 
 # ══════════════════════════════════════════════════════════
