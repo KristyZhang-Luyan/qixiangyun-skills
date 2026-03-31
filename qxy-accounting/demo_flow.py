@@ -68,6 +68,56 @@ def _err(msg): return {"ok": False, "user_message": msg}
 # ══════════════════════════════════════════════════════════
 # 第一步：企业画像（005）
 # ══════════════════════════════════════════════════════════
+def _format_profile(name, profile):
+    """将企业画像数据格式化为 markdown 表格"""
+    b = profile.get("basic", {})
+    biz = profile.get("business", {})
+    inv = profile.get("invoice_health", {})
+    tax = profile.get("tax_health", {})
+
+    def _money(v):
+        try:
+            return f"{float(v):,.2f}"
+        except (TypeError, ValueError):
+            return str(v) if v else "-"
+
+    def _yn(v):
+        return "是" if v else "否"
+
+    msg = f"{name} 企业画像\n\n"
+
+    msg += "**【基本信息】**\n\n"
+    msg += "| 项目 | 内容 |\n|---|---|\n"
+    msg += f"| 纳税人类型 | {b.get('taxpayer_type', '-')} |\n"
+    msg += f"| 经营状态 | {b.get('tax_status', '-')} |\n"
+    msg += f"| 所属行业 | {b.get('industry', '-')} |\n"
+    msg += f"| 信用等级 | {b.get('credit_grade', '-')} |\n"
+    msg += f"| 实际经营月数 | {b.get('operating_months', '-')} |\n\n"
+
+    msg += "**【近3年经营概况】**\n\n"
+    msg += "| 项目 | 金额 |\n|---|---|\n"
+    msg += f"| 累计总营收（不含税） | {_money(biz.get('total_revenue_3y'))} |\n"
+    msg += f"| 累计采购成本（不含税） | {_money(biz.get('total_purchase_cost_3y'))} |\n"
+    msg += f"| 核心业务 | {biz.get('top_business', '-') or '-'} |\n\n"
+
+    msg += "**【发票健康】**\n\n"
+    msg += "| 项目 | 数据 |\n|---|---|\n"
+    msg += f"| 销项发票总笔数 | {inv.get('total_sales_invoices_3y', '-')} |\n"
+    msg += f"| 进项发票总笔数 | {inv.get('total_purchase_invoices_3y', '-')} |\n"
+    msg += f"| 月均开票频率 | {inv.get('avg_monthly_sales_invoices', '-')} |\n\n"
+
+    msg += "**【税务健康】**\n\n"
+    msg += "| 项目 | 状态 |\n|---|---|\n"
+    msg += f"| 是否存在欠税 | {_yn(tax.get('has_overdue_tax'))} |\n"
+    msg += f"| 3年增值税申报次数 | {tax.get('vat_declare_count_3y', '-')} |\n"
+    msg += f"| 税务信用 | {tax.get('credit_label', '-')} |\n"
+    msg += f"| 是否存在违法信息 | {_yn(tax.get('has_violations'))} |\n"
+    msg += f"| 3年缴款总金额 | {_money(tax.get('total_paid_3y'))} |\n"
+    msg += f"| 缴款最高月份 | {tax.get('max_payment_month', '-') or '-'} |\n"
+
+    return msg
+
+
 def step1_profile():
     log.info("【第一步】企业画像")
     cid = "QXY100031100000005"
@@ -76,7 +126,9 @@ def step1_profile():
         from enterprise_profile import enterprise_profile
         r = enterprise_profile(c["agg_org_id"])
         if r.get("ok"):
-            return _ok(f"{c['name']}（{cid}）企业画像采集成功")
+            profile = r.get("profile", {})
+            msg = _format_profile(c["name"], profile)
+            return _ok(msg)
         return _err(f"企业画像采集失败：{r.get('error', '未知错误')}")
     except Exception as e:
         return _err(f"企业画像采集失败：{e}")
