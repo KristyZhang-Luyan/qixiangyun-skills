@@ -163,19 +163,31 @@ def _parse_profile_data(raw_data: dict) -> dict:
     }
 
 
-def enterprise_profile(agg_org_id: str) -> dict:
+def enterprise_profile(agg_org_id: str, nsrsbh: str = "", area_code: str = "",
+                       cjyfq: str = "", cjyfz: str = "") -> dict:
     """
     获取企业画像全量数据
     Args:
         agg_org_id: 企业聚合ID
+        nsrsbh: 纳税人识别号（必填）
+        area_code: 地区代码（必填）
+        cjyfq: 采集月份起，如 "202401"（必填）
+        cjyfz: 采集月份止，如 "202603"（必填）
     Returns:
         {ok, profile, raw_data}
     """
     # 1. 发起企业数据采集
     log.info(f"[企业画像] 发起数据采集: {agg_org_id}")
-    result = api_call("initiate_enterprise_data_collection", payload={
-        "aggOrgId": agg_org_id,
-    })
+    payload = {"aggOrgId": agg_org_id}
+    if nsrsbh:
+        payload["nsrsbh"] = nsrsbh
+    if area_code:
+        payload["areaCode"] = area_code
+    if cjyfq:
+        payload["cjyfq"] = cjyfq
+    if cjyfz:
+        payload["cjyfz"] = cjyfz
+    result = api_call("initiate_enterprise_data_collection", payload=payload)
 
     if not result["ok"]:
         return {
@@ -198,7 +210,10 @@ def enterprise_profile(agg_org_id: str) -> dict:
 
     # 2. 轮询获取采集状态及全量数据
     log.info(f"[企业画像] 轮询采集结果: taskId={task_id}")
-    poll_result = poll_task(agg_org_id, task_id)
+    poll_extra = {}
+    if nsrsbh:
+        poll_extra["nsrsbh"] = nsrsbh
+    poll_result = poll_task(agg_org_id, task_id, extra_args=poll_extra or None)
 
     if not poll_result["ok"]:
         return {

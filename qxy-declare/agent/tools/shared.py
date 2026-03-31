@@ -181,7 +181,8 @@ def api_call(endpoint_key: str, method: str = "POST", payload: dict = None,
 
 def poll_task(agg_org_id, task_id,
               interval: int = None, max_attempts: int = None,
-              result_endpoint: str = None) -> dict:
+              result_endpoint: str = None,
+              extra_args: dict = None) -> dict:
     """
     轮询异步任务（通过 MCP 协议）。
     返回格式不变：{"ok": True/False, "status": "completed/failed/processing", "data": ..., "poll_attempts": ...}
@@ -220,10 +221,16 @@ def poll_task(agg_org_id, task_id,
 
     # 2. 执行轮询
     try:
+        if extra_args is not None:
+            # extra_args 完全替代默认参数（仅保留 taskId）
+            tool_args = {"taskId": str(task_id)}
+            tool_args.update(extra_args)
+        else:
+            tool_args = {"aggOrgId": str(agg_org_id), "taskId": str(task_id)}
         poll_result = mcp_poll_tool(
             service_name=poll_service,
             tool_name=poll_tool_name,
-            tool_args={"aggOrgId": str(agg_org_id), "taskId": str(task_id)},
+            tool_args=tool_args,
             interval_seconds=interval,
             max_attempts=max_attempts,
         )

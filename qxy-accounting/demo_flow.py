@@ -124,7 +124,13 @@ def step1_profile():
     c = _ci(cid)
     try:
         from enterprise_profile import enterprise_profile
-        r = enterprise_profile(c["agg_org_id"])
+        r = enterprise_profile(
+            agg_org_id=c["agg_org_id"],
+            nsrsbh=cid,
+            area_code="52",
+            cjyfq="202401",
+            cjyfz="202603",
+        )
         if r.get("ok"):
             profile = r.get("profile", {})
             msg = _format_profile(c["name"], profile)
