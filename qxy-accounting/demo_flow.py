@@ -207,17 +207,52 @@ def _extract_vat_amounts(ir):
     return None
 
 
+VAT_INIT_CACHE = "/tmp/qxy_vat_init_cache.json"
+
+
+def _save_init_cache(cache_data):
+    """保存 initData 到临时文件，供 step5_vat_submit 读取"""
+    with open(VAT_INIT_CACHE, "w", encoding="utf-8") as f:
+        json.dump(cache_data, f, ensure_ascii=False)
+    log.info(f"initData 缓存已写入: {VAT_INIT_CACHE}")
+
+
+def _load_init_cache():
+    """读取 initData 缓存"""
+    if not os.path.exists(VAT_INIT_CACHE):
+        return None
+    with open(VAT_INIT_CACHE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _extract_init_data(ir):
+    """从初始化结果中提取完整的 initData（用于申报提交）"""
+    for res in ir.get("results", []):
+        if res.get("status") == "initialized" and res.get("init_data"):
+            d = res["init_data"]
+            init = d.get("data", {}).get("initData", d.get("initData", {}))
+            if isinstance(init, dict):
+                return init
+    return None
+
+
 def step5_vat_init():
     log.info("【第五步】增值税批量初始化")
     try:
         from init_declaration import init_declaration
         lines = []
+        cache_data = {}  # {cid: initData}
         for cid in VAT_BATCH_IDS:
             c = _ci(cid)
             log.info(f"增值税初始化: {c['name']}")
             ir = init_declaration(c["agg_org_id"], YEAR, PERIOD, [{"yzpzzlDm": "BDA0610606"}])
             ok = ir.get("ok") or bool(ir.get("results"))
             if ok:
+                # 提取并缓存 initData
+                init_data = _extract_init_data(ir)
+                if init_data:
+                    cache_data[cid] = init_data
+                # 提取金额用于展示
                 amounts = _extract_vat_amounts(ir)
                 if amounts:
                     ybt = amounts["本期应补退税额"]
@@ -232,6 +267,9 @@ def step5_vat_init():
                     lines.append(f"  {c['name']}：初始化成功（未获取到金额明细）")
             else:
                 lines.append(f"  {c['name']}：初始化失败 - {ir.get('errors', '未知错误')}")
+        # 保存缓存
+        if cache_data:
+            _save_init_cache(cache_data)
         return _ok(f"第五步（批量初始化）完成：\n\n" + "\n".join(lines) + "\n\n请确认以上申报数据，确认后将提交申报。")
     except Exception as e:
         return _err(f"第五步（批量初始化）失败：{e}")
@@ -241,16 +279,44 @@ def step5_vat_init():
 # 第五步-b：增值税批量申报提交（001-005）
 # ══════════════════════════════════════════════════════════
 def step5_vat_submit():
-    log.info("【第五步】增值税批量申报提交")
+    log.info("【第五步】增值税批量申报提交（方案B：使用initData直接申报）")
     try:
-        from submit_declaration import submit_simplified
+        cache = _load_init_cache()
+        if not cache:
+            return _err("第五步（批量申报提交）失败：未找到初始化缓存，请先执行 step5_vat_init")
+
         lines = []
         for cid in VAT_BATCH_IDS:
             c = _ci(cid)
+            init_data = cache.get(cid)
+            if not init_data:
+                lines.append(f"  {c['name']}：跳过（无初始化数据）")
+                continue
+
             log.info(f"增值税申报提交: {c['name']}")
-            sr = submit_simplified(c["agg_org_id"], YEAR, PERIOD, sb_init=True)
-            status = "成功" if sr.get("ok") else f"失败 - {sr.get('error', '未知错误')}"
-            lines.append(f"  {c['name']}：申报{status}")
+            payload = {
+                "aggOrgId": c["agg_org_id"],
+                "year": YEAR,
+                "period": PERIOD,
+                "isDirectDeclare": True,
+                "tax_data": init_data,
+            }
+            r = api_call("upload_tax_report", payload=payload)
+            if not r.get("ok"):
+                lines.append(f"  {c['name']}：申报失败 - {r.get('error', r.get('message', '未知错误'))}")
+                continue
+
+            data = r.get("data", {})
+            tid = (data.get("data") or {}).get("taskId", data.get("taskId"))
+            if tid:
+                pr = poll_task(c["agg_org_id"], tid, result_endpoint="query_tax_report_result")
+                if pr.get("ok") and pr.get("status") == "completed":
+                    lines.append(f"  {c['name']}：申报成功")
+                else:
+                    lines.append(f"  {c['name']}：申报失败 - {pr.get('error', '轮询状态异常')}")
+            else:
+                lines.append(f"  {c['name']}：申报失败 - 未获取到 taskId")
+
         return _ok(f"第五步（批量申报提交）完成：\n\n" + "\n".join(lines))
     except Exception as e:
         return _err(f"第五步（批量申报提交）失败：{e}")
