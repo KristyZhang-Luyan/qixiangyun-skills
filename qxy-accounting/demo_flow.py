@@ -158,7 +158,7 @@ def step4_cit():
     c = _ci(cid)
     try:
         from init_declaration import init_declaration
-        from submit_declaration import submit_simplified
+        from submit_declaration import submit_standard
 
         # 初始化：企业所得税A类（BDA0611159）
         log.info(f"企业所得税A初始化: {c['name']}")
@@ -166,9 +166,19 @@ def step4_cit():
         if not ir.get("ok") and not ir.get("results"):
             return _err(f"第四步失败：初始化失败 - {ir.get('errors', '未知错误')}")
 
-        # 申报提交
+        # 申报提交：按 writeTaxExcelData 接口规范，通过 zsxmList 提交
         log.info(f"企业所得税A申报提交: {c['name']}")
-        sr = submit_simplified(c["agg_org_id"], YEAR, PERIOD, sb_init=True)
+        # 企业所得税A季报：ssqQ 为季度首日，ssqZ 为季度末日
+        sr = submit_standard(c["agg_org_id"], YEAR, PERIOD, report_data={
+            "zsxmList": [{
+                "yzpzzlDm": "BDA0611159",
+                "ssqQ": f"{YEAR}-01-01",
+                "ssqZ": SSQ_Z,
+                "isDirectDeclare": True,
+                "gzDeclare": 1,
+            }],
+            "usePresetDialog": True,
+        }, direct_declare=True)
         if sr.get("ok"):
             return _ok(f"第四步完成：{c['name']}（{cid}）企业所得税A初始化并申报成功")
         return _err(f"第四步失败：申报提交失败 - {sr.get('error', '未知错误')}")
