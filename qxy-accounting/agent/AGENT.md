@@ -608,233 +608,99 @@ sessions_spawn({
 
 ## 完整演示流程编排（沙箱环境）
 
-当用户说"开始演示"、"跑完整流程"、"全流程演示"，或者提供了企业信息要求申报时，按以下**严格顺序**依次执行。
-每一步使用指定的沙箱税号，数据全部是 mock 的，不会产生真实申报。
-**必须按顺序串联执行，前一步完成后再执行下一步。**
-**每一步都是独立的 spawn 调用，用对应的税号和参数。**
+当用户说"开始演示"、"跑完整流程"、"全流程演示"，或者提供了包含多个步骤的演示 prompt 时，**使用 demo_flow.py 按步骤执行**。
 
----
-
-### 演示第一步：登录
-
-提示用户登录已完成（演示环境免登录）。
-直接进入下一步。
-
----
-
-### 演示第二步：企业画像（税号 007，agg_org_id: 5208297826012864）
-
-> 调用方式：MCP
-> MCP URL: enterprise_profiling_service
-> MCP Tool: initiate_enterprise_data_collection_auto → get_collection_status_and_full_data_auto
-
-spawn qxy-declare 执行 `enterprise_profile.py`：
+### 脚本路径
 
 ```
-python3 tools/enterprise_profile.py '{"agg_org_id": "5208297826012864"}'
+/Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py
 ```
 
-将返回的画像摘要（企业名称、行业、纳税人类型、信用等级、近3年营收等）展示给用户。
+### 执行方式：逐步执行，每步汇报结果
+
+**按顺序执行以下命令，每执行一步就把返回的 user_message 发给用户，然后继续下一步。**
 
 ---
 
-### 演示第三步：获取清册（5个税号，001~005）
+### 演示第一步：企业画像（005 天津市金万翔建材科技有限公司）
 
-> 调用方式：MCP
-> MCP URL: roster_entry
-> MCP Tool: initiate_declaration_entry_task_auto → query_roster_entry_task_auto
-
-对5家企业分别获取清册，展示汇总结果给用户，**等用户确认**：
-
-```
-python3 tools/fetch_tax_list.py '{"mode": "batch", "companies": [
-  {"agg_org_id": "5208291448799296", "company_name": "北京数算科技有限公司", "company_id": "QXY100031100000001"},
-  {"agg_org_id": "5208295720930176", "company_name": "北京星云智联科技有限公司", "company_id": "QXY100031100000002"},
-  {"agg_org_id": "5208296132444224", "company_name": "上海瀚海商贸有限公司", "company_id": "QXY100031100000003"},
-  {"agg_org_id": "5208296673559936", "company_name": "深圳前海新能源发展有限公司", "company_id": "QXY100031100000004"},
-  {"agg_org_id": "5208297141358272", "company_name": "天津市金万翔建材科技有限公司", "company_id": "QXY100031100000005"}
-], "year": 2026, "period": 3}'
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step1"}'
 ```
 
----
-
-### 演示第四步：财报报表Excel导入申报（税号 007，agg_org_id: 5208297826012864）
-
-> 调用方式：MCP
-> MCP URL: declaration_submission
-> MCP Tool: upload_tax_report_data_excel_auto → query_upload_financial_report_result_auto
-
-此步分两个阶段：
-
-**4a. 上传财报数据**
-1. 提示用户上传财务报表Excel（小企业会计准则 .xlsx），**等用户上传**
-2. 用户上传后，直接调用上传接口（不做税费计算）
-
-参数：
-- aggOrgId = "5208297826012864"
-- year = 2026, period = 3
-- isDirectDeclare = true
-- yzpzzlDm = "CWBBSB"
-- zlbsxlDm = "ZL1001003"（小企业会计准则）
-- templateCode = "0"
-- ssqQ = "2026-01-01", ssqZ = "2026-03-31"
-
-**4b. 获取财报申报结果**
-轮询查询结果，成功后展示给用户。
+将返回的画像摘要展示给用户。
 
 ---
 
-### 演示第五步：企业所得税A初始化+申报（税号 006，agg_org_id: 5208297482143808）
+### 演示第二步：获取清册（001~005，5家）
 
-此步分两个阶段：
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step2"}'
+```
 
-**5a. 企业所得税A初始化**
-
-> 调用方式：MCP
-> MCP URL: initialize_data
-> MCP Tool: load_init_data_task → get_init_data
-
-参数：
-- aggOrgId = "5208297482143808"
-- year = 2026, period = 3
-- yzpzzlDm = "BDA0611159"
-- ssqQ = "2026-01-01", ssqZ = "2026-03-31"
-
-初始化完成后，从返回的 zbGrid 数据中提取企业所得税信息，计算税额，展示给用户，**等用户确认**。
-
-**5b. 企业所得税A申报提交**
-
-> 调用方式：MCP
-> MCP URL: declaration_submission
-> MCP Tool: upload_tax_report_data_auto → query_upload_tax_report_result_auto
-
-用户确认后提交申报：
-- aggOrgId = "5208297482143808"
-- year = 2026, period = 3
-- isDirectDeclare = true
-- yzpzzlDm = "BDA0611159"
-- sdsData = {}（企业所得税报文）
-
-展示申报结果给用户。
+展示5家企业清册汇总给用户。
 
 ---
 
-### 演示第六步：增值税全流程（5个税号 001~005 + 单个税号演示缴款）
+### 演示第三步：财务报表Excel上传申报（007 深圳交易研究院有限公司）
+
+**阶段1：提示用户上传Excel**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step3"}'
+```
+把返回的 user_message 发给用户（会提示用户上传Excel文件）。
+
+**阶段2：用户通过飞书发送了Excel文件后，你会拿到文件路径，再执行：**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step3","file_path":"用户上传的文件路径"}'
+```
+把返回的"已成功申报"消息发给用户，然后继续第四步。
+
+---
+
+### 演示第四步：增值税全流程（001~005，5家 + 金万翔PDF和视频）
 
 此步包含多个子步骤，严格按顺序执行：
 
-**6a. 增值税初始化（批量5家）**
-
-> 调用方式：MCP
-> MCP URL: initialize_data
-> MCP Tool: load_init_data_task → get_init_data
-
-对5家企业分别初始化，参数模板：
-- year = 2026, period = 3
-- yzpzzlDm = "BDA0610606"
-- ssqQ = "2026-03-01", ssqZ = "2026-03-31"
-
-5家企业的 aggOrgId：
-- 北京数算科技：5208291448799296
-- 北京星云智联：5208295720930176
-- 上海瀚海商贸：5208296132444224
-- 深圳前海新能源：5208296673559936
-- 天津金万翔建材：5208297141358272
-
-初始化完成后，从 zbGrid 计算各企业税额，展示汇总给用户，**等用户确认**。
-
-**6b. 增值税申报提交（批量5家）**
-
-> 调用方式：MCP
-> MCP URL: declaration_submission
-> MCP Tool: upload_tax_report_data_auto → query_upload_tax_report_result_auto
-
-用户确认后，对5家企业分别提交申报。展示批量申报结果。
-
-**6c. 增值税PDF下载（1家，税号 001，agg_org_id: 5208291448799296）**
-
-> 调用方式：MCP
-> MCP URL: pdf_download
-> MCP Tool: load_pdf_task → query_pdf_task_result_auto
-
-参数：
-- aggOrgId = "5208291448799296"
-- year = 2026, period = 3
-- yzpzzlDm = "BDA0610606"
-- ssqQ = "2026-03-01", ssqZ = "2026-03-31"
-- analysisPdf = "Y"
-
-返回 PDF URL 和 JSON 结构化数据，展示给用户。
-
-**6d. 增值税申报视频直播（1家，税号 001）**
-
-> 调用方式：URL（硬编码）
-
-视频URL：
+**4a. 增值税批量初始化（5家）**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_vat_init"}'
 ```
-http://qxy-oss-robot-product.qixiangyun.com/VIDEO/etax-agg-product_0d17b8be20214c11a52ccb869fb185ce_1773040951439.webm?OSSAccessKeyId=LTAI5tMHcomKiHbKRhS2uU8X&Expires=1804144951&Signature=4GzUiutzNNoMGMtL%2BCt/%2Bk9qWcY%3D
+返回各企业初始化数据（申报金额等），**列出给用户确认**后再继续。
+
+**4b. 增值税批量申报提交（用户确认后）**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_vat_submit"}'
 ```
 
-> ⚠️ 展示给用户时，使用富文本格式：「[点击查看申报操作视频](URL)」，不要直接裸露整个URL。
-> 演示话术：这是本次增值税申报的操作录屏视频，您可以点击查看详细申报过程。
+**4c. PDF下载（005 天津市金万翔建材科技有限公司）**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_pdf"}'
+```
 
-**6e. 增值税缴款提交（1家，税号 001，agg_org_id: 5208291448799296）**
-
-> 调用方式：MCP
-> MCP URL: tax_payment
-> MCP Tool: load_payment_task → query_tax_payment_task_result_auto
-
-先展示缴款明细，**等用户确认缴款**，确认后执行：
-
-参数：
-- aggOrgId = "5208291448799296"
-- year = 2026, period = 3
-- yzpzzlDm = "BDA0610606"
-- fromDate = "2026-03-01"
-- toDate = "2026-03-31"
-
-spawn qxy-payment 执行缴款流程。
-
-**6f. 增值税完税凭证下载（1家，税号 001，agg_org_id: 5208291448799296）**
-
-> 调用方式：MCP
-> MCP URL: tax_payment_certificate
-> MCP Tool: initiate_wszm_parse_task_auto → query_wszm_parse_task_result_auto
-
-参数：
-- aggOrgId = "5208291448799296"
-- yzpzzlDm = "BDA0610606"
-- ssqQ = "2026-03-01"
-- ssqZ = "2026-03-31"
-
-返回完税证明的 PDF URL 和 JSON 数据，展示给用户。
+**4d. 视频直播（005 天津市金万翔建材科技有限公司）**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_video"}'
+```
 
 ---
 
 ### 演示流程总结
 
 ```
-第一步：登录（跳过）
-第二步：企业画像（007）
-第三步：获取清册（001~005 批量）→ 等用户确认
-第四步：财报Excel上传申报（007）→ 等用户上传 → 直接提交
-第五步：企业所得税初始化+申报（006）→ 展示税额 → 等用户确认 → 提交
-第六步：增值税初始化（001~005 批量）→ 展示税额 → 等用户确认
-      → 增值税申报（001~005 批量）
-      → PDF下载（001）
-      → 申报视频（001）
-      → 缴款（001）→ 等用户确认
-      → 完税证明（001）
+第一步：企业画像（005 金万翔）
+第二步：获取清册（001~005 批量5家）
+第三步：财报Excel上传申报（007 交易研究院）→ 等用户上传 → 返回"已成功申报"
+第四步：增值税初始化（001~005 批量5家）→ 列出金额数据 → 等用户确认
+      → 增值税申报提交（001~005 批量5家）
+      → PDF下载（005 金万翔）
+      → 申报视频（005 金万翔）
 ```
 
 ### 用户交互节点（需要停下来等用户回复的地方）
 
-1. **第三步结束**：展示清册，等用户确认"开始申报"
-2. **第四步中间**：等用户上传财务报表Excel
-3. **第五步中间**：展示企业所得税税额，等用户确认申报
-4. **第六步 6a 后**：展示增值税税额汇总，等用户确认申报
-5. **第六步 6e 前**：展示缴款明细，等用户确认缴款
-6. **最后**：展示全部结果，等用户确认收到
+1. **第三步阶段1后**：等用户上传财务报表Excel
+2. **第四步 4a 后**：展示增值税初始化数据（金额等），等用户确认申报
 
 ### 沙箱税号速查
 
@@ -845,7 +711,6 @@ spawn qxy-payment 执行缴款流程。
 | QXY100031100000003 | 5208296132444224 | 增值税-上海瀚海商贸（0申报）|
 | QXY100031100000004 | 5208296673559936 | 增值税-深圳前海新能源（0申报）|
 | QXY100031100000005 | 5208297141358272 | 增值税-天津金万翔建材（有数申报）|
-| QXY100031100000006 | 5208297482143808 | 企业所得税（0申报）|
-| QXY100031100000007 | 5208297826012864 | 财务报表上传 |
+| QXY100031100000007 | 5208297826012864 | 财务报表上传-深圳交易研究院 |
 
-**关键：每一步都是独立的 spawn 调用，用不同的税号。演示过程中会存在多个任务（不同 task_id），你需要记住每个任务的 task_id，在正确的时机推进正确的任务。**
+**规则不变**：取每步返回 JSON 中的 `user_message` 发给用户，不要发 JSON 本身。

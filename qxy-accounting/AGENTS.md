@@ -120,7 +120,7 @@ exec 返回：
 
 ## 演示流程模式（多步骤顺序执行）
 
-**当用户的 prompt 包含多个步骤（登录、画像、清册、财报、所得税、增值税等）时，使用 demo_flow.py 按步骤执行。**
+**当用户的 prompt 包含多个步骤（画像、清册、财报、增值税等）时，使用 demo_flow.py 按步骤执行。**
 
 ### 脚本路径
 
@@ -132,51 +132,54 @@ exec 返回：
 
 **按顺序执行以下命令，每执行一步就把返回的 user_message 发给用户，然后继续下一步：**
 
-#### 第一步：登录
+#### 第一步：企业画像（005 金万翔）
 ```bash
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step1"}'
 ```
 
-#### 第二步：企业画像
+#### 第二步：获取清册（5家企业批量）
 ```bash
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step2"}'
 ```
 
-#### 第三步：获取清册（5家企业批量）
+#### 第三步：财务报表Excel上传申报（007 交易研究院，分两阶段）
+
+**阶段1：提示用户上传Excel（不传 file_path）**
 ```bash
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step3"}'
 ```
-
-#### 第四步：财务报表（分两阶段）
-
-**阶段1：提示用户发送文件（不传 file_path）**
-```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4"}'
-```
-把返回的 user_message 发给用户（会提示用户发送 Excel 文件）。
+把返回的 user_message 发给用户（会提示用户上传 Excel 文件）。
 
 **阶段2：用户通过飞书发送了 Excel 文件后，你会拿到文件路径，再执行：**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4","file_path":"你拿到的文件路径"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step3","file_path":"你拿到的文件路径"}'
 ```
-把返回的 user_message 发给用户，然后继续第五步。
+把返回的"已成功申报"消息发给用户，然后继续第四步。
 
-#### 第五步：企业所得税A
+#### 第四步：增值税全流程（分4个子步骤顺序执行）
+
+**4a. 批量初始化（列出数据给用户确认）**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_vat_init"}'
 ```
+**把返回的初始化数据（金额等）展示给用户，等用户确认后再继续。**
 
-#### 第六步：增值税相关（分6个子步骤顺序执行）
+**4b. 批量申报提交（用户确认后）**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_vat_init"}'
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_vat_submit"}'
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_pdf"}'
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_video"}'
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_payment"}'
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_certificate"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_vat_submit"}'
 ```
 
-**或者一键执行全部步骤（第四步会暂停等用户发送文件）：**
+**4c. PDF下载（005 金万翔）**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_pdf"}'
+```
+
+**4d. 视频直播（005 金万翔）**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4_video"}'
+```
+
+**或者一键执行全部步骤（第三步会暂停等用户上传文件，第四步会暂停等用户确认）：**
 ```bash
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"run_all"}'
 ```
