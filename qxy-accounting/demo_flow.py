@@ -4,7 +4,7 @@ demo_flow.py — 五步演示流程脚本
 
 严格按照演示步骤执行：
   第一步：企业画像（005 天津市金万翔建材科技有限公司）
-  第二步：获取清册（001-005，5家）
+  第二步：获取清册（001-007，全部7家）
   第三步：财务报表Excel上传申报（007 深圳交易研究院有限公司，小企业会计准则）
   第四步：企业所得税A初始化+申报提交（006 中邮证券有限责任公司天津分公司）
   第五步：增值税批量初始化（001-005）→ 列出金额等数据给用户确认
@@ -54,6 +54,12 @@ VAT_BATCH_IDS = [
     "QXY100031100000004", "QXY100031100000005",
 ]
 
+ALL_COMPANY_IDS = [
+    "QXY100031100000001", "QXY100031100000002", "QXY100031100000003",
+    "QXY100031100000004", "QXY100031100000005", "QXY100031100000006",
+    "QXY100031100000007",
+]
+
 def _ci(cid): return COMPANIES.get(cid, {"name": cid, "agg_org_id": ""})
 def _ok(msg): return {"ok": True, "user_message": msg}
 def _err(msg): return {"ok": False, "user_message": msg}
@@ -80,11 +86,11 @@ def step1_profile():
 # 第二步：获取清册（001-005）
 # ══════════════════════════════════════════════════════════
 def step2_fetch_list():
-    log.info("【第二步】获取清册")
+    log.info("【第二步】获取清册（7家全部）")
     try:
         from fetch_tax_list import fetch_tax_list
         lines = []
-        for cid in VAT_BATCH_IDS:
+        for cid in ALL_COMPANY_IDS:
             c = _ci(cid)
             log.info(f"获取清册: {c['name']}")
             r = fetch_tax_list(c["agg_org_id"], YEAR, PERIOD)
@@ -94,7 +100,7 @@ def step2_fetch_list():
                 lines.append(f"  {c['name']}：{len(items)}个待申报税种 ({', '.join(names)})")
             else:
                 lines.append(f"  {c['name']}：获取失败 - {r.get('error', '未知错误')}")
-        return _ok(f"第二步完成：5家企业清册获取完毕\n\n" + "\n".join(lines))
+        return _ok(f"第二步完成：7家企业清册获取完毕\n\n" + "\n".join(lines))
     except Exception as e:
         return _err(f"第二步失败：{e}")
 

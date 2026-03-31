@@ -15,19 +15,28 @@
 
 如果你发现自己想搜索 memory、想问用户要接口信息、想说"我不知道"——**停下来，改为调用 sessions_spawn。**
 
-### 强制行为模式（if-then 规则）
+### 强制行为模式（if-then 规则）— 路由优先级从上到下匹配
 
 ```
+# ⛔ 优先级1（默认）：走演示流程五步骤
+# 以下任一条件满足即走 demo_flow.py：
+#   - 用户没有指定具体企业
+#   - 用户提到了多家企业
+#   - 用户提到了多个步骤（画像、清册、财报、所得税、增值税等）
+#   - 用户说"申报"、"报税"但没有明确只针对某一家企业的某一个操作
 IF 用户消息包含 "申报" OR "报税" OR "税务" OR "清册" OR "纳税"
-THEN 立即调用 sessions_spawn({ agentId: "qxy-declare", ... })
+   AND 不是明确针对【单一企业】的【单一操作】
+THEN 使用 demo_flow.py 按五步骤顺序执行（见下方"完整演示流程编排"章节）
 NEVER 调用 memory_search
 NEVER 向用户反问技术问题
 NEVER 说自己不知道怎么做
 
-IF 用户消息包含 "批量申报" OR "批量报税" OR "多家企业" OR "全部申报" OR 提供了多个税号/企业
-THEN 使用 batch_state_machine.py 而非 state_machine.py
-THEN 调用 sessions_spawn({ agentId: "qxy-declare", ... }) 执行批量模式
+# 优先级2：用户明确针对【单一企业】做【单一操作】
+# 例如："给金万翔报增值税"、"查 001 的清册"
+IF 用户只指定了 1 家企业 AND 只做 1 个操作
+THEN 立即调用 sessions_spawn({ agentId: "qxy-declare", ... }) 走单企业 state_machine.py
 
+# 缴款路由（不受上述优先级影响）
 IF 申报流程刚完成 AND total_payable > 0 AND 用户确认缴款
 THEN 立即调用 sessions_spawn({ agentId: "qxy-payment", ... })
 
@@ -35,6 +44,8 @@ IF 用户单独提到 "缴款" OR "缴费" OR "缴税"（非申报流程中）
 THEN 询问用户是哪个公司、哪个期间的缴款
 THEN 调用 sessions_spawn({ agentId: "qxy-payment", ... })
 ```
+
+**换句话说：只有"单一企业 + 单一操作"才走 state_machine.py，其他所有情况（不指定企业、多家企业、多步骤流程）全部默认走 demo_flow.py 五步骤。**
 
 ---
 
@@ -608,7 +619,7 @@ sessions_spawn({
 
 ## 完整演示流程编排（沙箱环境）
 
-当用户说"开始演示"、"跑完整流程"、"全流程演示"，或者提供了包含多个步骤的演示 prompt 时，**使用 demo_flow.py 按步骤执行**。
+当用户说"申报"、"报税"等且没有指定具体企业时，**默认使用 demo_flow.py 按步骤执行**。也适用于用户明确说"开始演示"、"跑完整流程"、"全流程演示"的情况。
 
 ### 脚本路径
 
@@ -632,13 +643,13 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 
 ---
 
-### 演示第二步：获取清册（001~005，5家）
+### 演示第二步：获取清册（001~007，全部7家）
 
 ```bash
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step2"}'
 ```
 
-展示5家企业清册汇总给用户。
+展示7家企业清册汇总给用户。
 
 ---
 
@@ -699,7 +710,7 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 
 ```
 第一步：企业画像（005 金万翔）
-第二步：获取清册（001~005 批量5家）
+第二步：获取清册（001~007 全部7家：001-005增值税 + 006所得税 + 007财务报表）
 第三步：财报Excel上传申报（007 交易研究院）→ 等用户上传 → 返回"已成功申报"
 第四步：企业所得税A初始化+申报（006 中邮证券）→ 自动完成
 第五步：增值税初始化（001~005 批量5家）→ 列出金额数据 → 等用户确认
