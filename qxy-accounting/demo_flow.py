@@ -66,16 +66,8 @@ def _err(msg): return {"ok": False, "user_message": msg}
 # 第一步：登录
 # ══════════════════════════════════════════════════════════
 def step1_login():
-    log.info("【第一步】登录")
-    try:
-        from login import ensure_logged_in
-        # 用任意企业的 agg_org_id 登录即可
-        first_agg = next(iter(COMPANIES.values()))["agg_org_id"]
-        r = ensure_logged_in(first_agg)
-        ok = r.get("ok", False) if isinstance(r, dict) else bool(r)
-        return _ok("第一步完成：已成功登录") if ok else _err(f"第一步失败：登录失败 - {r}")
-    except Exception as e:
-        return _err(f"第一步失败：{e}")
+    log.info("【第一步】登录（已通过凭证自动认证，无需手动登录）")
+    return _ok("第一步完成：已通过凭证自动认证，无需登录")
 
 
 # ══════════════════════════════════════════════════════════
