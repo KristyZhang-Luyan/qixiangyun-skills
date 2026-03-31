@@ -739,3 +739,5 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 | QXY100031100000007 | 5208297826012864 | 财务报表上传-深圳交易研究院 |
 
 **规则不变**：取每步返回 JSON 中的 `user_message` 发给用户，不要发 JSON 本身。
+
+**⛔ 特别注意：当 user_message 中包含链接（URL）时，必须将链接完整原样发送给用户。绝对不可以省略链接、用"已生成"/"已完成"等概括性描述替代链接。用户需要点击链接。**
