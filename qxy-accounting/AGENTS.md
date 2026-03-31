@@ -106,20 +106,75 @@ exec 返回：
 
 ---
 
-## 申报流程
+## ⛔⛔⛔ 路由判断（必须在执行前先判断）⛔⛔⛔
+
+**收到用户的申报/清册/报税请求后，先判断涉及几家企业，再选择对应路径：**
+
+| 判断条件 | 走哪条路径 | 用哪个脚本 |
+|---|---|---|
+| 涉及 **2家及以上** 企业 | **批量路径** | batch.py |
+| 涉及 **1家** 企业 | 单企业路径 | state_machine.py |
+
+**触发批量路径的关键词**：
+- "所有企业"、"全部企业"、"名下企业"、"批量"、"一起报"、"001到005"
+- 用户列举了多家公司名（如"数算、星云、瀚海都报一下"）
+- 用户说"帮我申报这几家"并提到2家以上
+
+**只要涉及多家企业，必须走批量路径，禁止一家一家循环调用 state_machine.py。**
+
+---
+
+## 批量路径（2家及以上企业）
+
+### 脚本路径
+
+```
+/Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py
+```
+
+### 第1步：批量创建
+
+从企业信息表查出所有涉及企业的 company_id、company_name、agg_org_id，**一次性**传入：
+
+```bash
+python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"action":"batch_create","companies":[{"company_id":"QXY100031100000001","company_name":"北京数算科技有限公司","agg_org_id":"5208291448799296","period":"2026-03"},{"company_id":"QXY100031100000002","company_name":"北京星云智联科技有限公司","agg_org_id":"5208295720930176","period":"2026-03"}]}'
+```
+
+取返回的 `user_message` 发给用户。**记住返回的 `task_ids` 列表。**
+
+### 第2步：批量推进
+
+```bash
+python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"action":"batch_advance","task_ids":["decl_202603_QXY100031100000001","decl_202603_QXY100031100000002"]}'
+```
+
+### 第3步：批量注入（用户统一确认后）
+
+```bash
+python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"action":"batch_inject","task_ids":["decl_202603_QXY100031100000001","decl_202603_QXY100031100000002"],"data_key":"tax_confirm_ack","data_value":{"user_said":"确认没有问题，全部提交申报"}}'
+```
+
+然后再执行一次 `batch_advance` 推进到下一步。
+
+### 批量查询状态
+
+```bash
+python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"action":"batch_status","task_ids":["decl_202603_QXY100031100000001","decl_202603_QXY100031100000002"]}'
+```
+
+**规则同上**：取 `user_message` 发给用户，不要发 JSON。`task_ids` 自己记住。
+
+---
+
+## 单企业路径（仅1家企业）
 
 ### 第1轮：用户发起申报请求
 
-用户说"帮我申报XXX公司的2026年3月税务，企业ID是xxx，聚合ID是yyy"
-
-你执行：
 ```bash
 python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/state_machine.py '{"action":"create","company_id":"xxx","company_name":"XXX公司","agg_org_id":"yyy","period":"2026-03"}'
 ```
 
-取返回 JSON 中的 `user_message` 值发给用户。**不要发 JSON 本身。**
-
-同时你需要**记住返回的 `task_id`**（如 `decl_202603_xxx`），后续所有操作都需要它。
+取返回 JSON 中的 `user_message` 值发给用户。**记住返回的 `task_id`。**
 
 ### 第2轮起：用户回复确认
 
@@ -159,48 +214,6 @@ python3 /Users/kristyzhang/.openclaw/agents/qxy-payment/agent/tools/state_machin
 **关键**：`declare_result` 里的 `total_payable` 和 `tax_details` 必须来自申报 advance 返回的 `summary` 字段，不要自己编造金额。
 
 后续同样：inject + advance，取 user_message 发给用户。
-
----
-
-## 批量申报流程（第六步：增值税批量）
-
-### 批量脚本路径
-
-```
-/Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py
-```
-
-### 批量创建
-
-用户说"申报我名下所有企业这个月的增值税"，你执行：
-
-```bash
-python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"action":"batch_create","companies":[{"company_id":"QXY100031100000001","company_name":"企业1","agg_org_id":"yyy","period":"2026-03"},{"company_id":"QXY100031100000002","company_name":"企业2","agg_org_id":"yyy","period":"2026-03"}]}'
-```
-
-取返回的 `user_message` 发给用户。同时记住返回的 `task_ids` 列表。
-
-### 批量推进
-
-```bash
-python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"action":"batch_advance","task_ids":["decl_202603_QXY100031100000001","decl_202603_QXY100031100000002"]}'
-```
-
-### 批量注入（用户统一确认后）
-
-用户说"确认没有问题，全部提交申报"，你执行：
-
-```bash
-python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"action":"batch_inject","task_ids":["decl_202603_QXY100031100000001","decl_202603_QXY100031100000002"],"data_key":"tax_confirm_ack","data_value":{"user_said":"确认没有问题，全部提交申报"}}'
-```
-
-### 批量查询状态
-
-```bash
-python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"action":"batch_status","task_ids":["decl_202603_QXY100031100000001","decl_202603_QXY100031100000002"]}'
-```
-
-**规则同上**：取 `user_message` 发给用户，不要发 JSON。`task_ids` 自己记住。
 
 ---
 
