@@ -76,10 +76,10 @@ def step1_profile():
         from enterprise_profile import enterprise_profile
         r = enterprise_profile(c["agg_org_id"])
         if r.get("ok"):
-            return _ok(f"第一步完成：{c['name']}（{cid}）企业画像采集成功")
-        return _err(f"第一步失败：{r.get('error', '未知错误')}")
+            return _ok(f"{c['name']}（{cid}）企业画像采集成功")
+        return _err(f"企业画像采集失败：{r.get('error', '未知错误')}")
     except Exception as e:
-        return _err(f"第一步失败：{e}")
+        return _err(f"企业画像采集失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -100,9 +100,9 @@ def step2_fetch_list():
                 lines.append(f"  {c['name']}：{len(items)}个待申报税种 ({', '.join(names)})")
             else:
                 lines.append(f"  {c['name']}：获取失败 - {r.get('error', '未知错误')}")
-        return _ok(f"第二步完成：7家企业清册获取完毕\n\n" + "\n".join(lines))
+        return _ok(f"7家企业清册获取完毕\n\n" + "\n".join(lines))
     except Exception as e:
-        return _err(f"第二步失败：{e}")
+        return _err(f"清册获取失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -114,7 +114,7 @@ def step3_upload_excel(file_path=""):
     cid = "QXY100031100000007"
     c = _ci(cid)
     if not file_path:
-        return _ok(f"请上传 {c['name']} 的财务报表Excel文件（小企业会计准则），我收到后会自动导入并申报。")
+        return _ok(f"请上传 {c['name']} 的财务报表Excel文件（小企业会计准则），我收到后会自动导入。")
     try:
         import base64
         with open(file_path, "rb") as f:
@@ -135,17 +135,17 @@ def step3_upload_excel(file_path=""):
         log.info(f"上传财务报表: {payload['fileName']}")
         r = api_call("upload_financial_report_excel", payload=payload)
         if not r.get("ok"):
-            return _err(f"第三步失败：上传失败 - {r.get('error', r.get('message'))}")
+            return _err(f"财务报表上传失败：{r.get('error', r.get('message'))}")
         data = r.get("data", {})
         tid = (data.get("data") or {}).get("taskId", data.get("taskId"))
         if tid:
             pr = poll_task(c["agg_org_id"], tid, result_endpoint="query_financial_report_result")
             if pr.get("ok") and pr.get("status") == "completed":
-                return _ok(f"第三步完成：{c['name']} 财务报表已成功申报")
-            return _err(f"第三步失败：{pr.get('error', '状态异常')}")
-        return _ok(f"第三步完成：{c['name']} 财务报表已成功申报")
+                return _ok(f"{c['name']} 财务报表已成功上传")
+            return _err(f"财务报表上传失败：{pr.get('error', '状态异常')}")
+        return _ok(f"{c['name']} 财务报表已成功上传")
     except Exception as e:
-        return _err(f"第三步失败：{e}")
+        return _err(f"财务报表上传失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -163,12 +163,12 @@ def step4_cit():
         log.info(f"企业所得税A初始化: {c['name']}")
         ir = init_declaration(c["agg_org_id"], YEAR, PERIOD, [{"yzpzzlDm": "BDA0611159"}])
         if not ir.get("ok") and not ir.get("results"):
-            return _err(f"第四步失败：初始化失败 - {ir.get('errors', '未知错误')}")
+            return _err(f"企业所得税A初始化失败：{ir.get('errors', '未知错误')}")
 
         # 从初始化结果中提取 initData
         init_data = _extract_init_data(ir)
         if not init_data:
-            return _err("第四步失败：初始化成功但未提取到 initData")
+            return _err("企业所得税A初始化成功但未提取到表单数据")
 
         # 修正所属期：企业所得税为季报，所属期应为当季起止
         cit_ssq_q = f"{YEAR}-01-01"
@@ -191,18 +191,18 @@ def step4_cit():
         }
         r = api_call("upload_tax_report", payload=payload)
         if not r.get("ok"):
-            return _err(f"第四步失败：申报提交失败 - {r.get('error', r.get('message', '未知错误'))}")
+            return _err(f"企业所得税A申报提交失败：{r.get('error', r.get('message', '未知错误'))}")
 
         data = r.get("data", {})
         tid = (data.get("data") or {}).get("taskId", data.get("taskId"))
         if tid:
             pr = poll_task(c["agg_org_id"], tid, result_endpoint="query_tax_report_result")
             if pr.get("ok") and pr.get("status") == "completed":
-                return _ok(f"第四步完成：{c['name']}（{cid}）企业所得税A初始化并申报成功")
-            return _err(f"第四步失败：申报轮询失败 - {pr.get('error', '状态异常')}")
-        return _err("第四步失败：申报提交未返回 taskId")
+                return _ok(f"{c['name']}（{cid}）企业所得税A初始化并申报成功")
+            return _err(f"企业所得税A申报轮询失败：{pr.get('error', '状态异常')}")
+        return _err("企业所得税A申报提交未返回任务ID")
     except Exception as e:
-        return _err(f"第四步失败：{e}")
+        return _err(f"企业所得税A申报失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -301,7 +301,7 @@ def step5_vat_init():
         if cache_data:
             _save_init_cache(cache_data)
         # 构建 markdown 表格
-        msg = "第五步（增值税批量初始化）完成，5家企业数据如下：\n\n"
+        msg = "增值税批量初始化完成，5家企业数据如下：\n\n"
         msg += "| 企业 | 销售额 | 销项税额 | 进项税额 | 应纳税额 | 附加税应补 |\n"
         msg += "|---|---|---|---|---|---|\n"
         for row in table_rows:
@@ -311,7 +311,7 @@ def step5_vat_init():
         msg += "\n请确认以上申报数据，确认后将提交申报。"
         return _ok(msg)
     except Exception as e:
-        return _err(f"第五步（批量初始化）失败：{e}")
+        return _err(f"增值税批量初始化失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -322,7 +322,7 @@ def step5_vat_submit():
     try:
         cache = _load_init_cache()
         if not cache:
-            return _err("第五步（批量申报提交）失败：未找到初始化缓存，请先执行 step5_vat_init")
+            return _err("增值税批量申报失败：未找到初始化缓存，请先执行批量初始化")
 
         lines = []
         for cid in VAT_BATCH_IDS:
@@ -356,9 +356,9 @@ def step5_vat_submit():
             else:
                 lines.append(f"  {c['name']}：申报失败 - 未获取到 taskId")
 
-        return _ok(f"第五步（批量申报提交）完成：\n\n" + "\n".join(lines))
+        return _ok(f"增值税批量申报提交完成：\n\n" + "\n".join(lines))
     except Exception as e:
-        return _err(f"第五步（批量申报提交）失败：{e}")
+        return _err(f"增值税批量申报提交失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -402,13 +402,13 @@ def step5_pdf():
                     if pdf_url:
                         break
 
-            msg = f"第五步（PDF下载）完成：{c['name']}（{cid}）"
+            msg = f"{c['name']}（{cid}）增值税申报PDF已生成"
             if pdf_url:
                 msg += f"\n\n[点击下载PDF申报回执]({pdf_url})"
             return _ok(msg)
-        return _err(f"第五步失败：PDF下载失败 - {r.get('error', '未知错误')}")
+        return _err(f"PDF下载失败：{r.get('error', '未知错误')}")
     except Exception as e:
-        return _err(f"第五步失败：{e}")
+        return _err(f"PDF下载失败：{e}")
 
 
 # ══════════════════════════════════════════════════════════
@@ -419,7 +419,7 @@ def step5_video():
            "etax-agg-product_0d17b8be20214c11a52ccb869fb185ce_1773040951439.webm"
            "?OSSAccessKeyId=LTAI5tMHcomKiHbKRhS2uU8X&Expires=1804144951"
            "&Signature=4GzUiutzNNoMGMtL%2BCt/%2Bk9qWcY%3D")
-    return _ok(f"第五步（视频直播）完成：天津市金万翔建材科技有限公司（005）\n\n[点击观看申报操作视频]({url})")
+    return _ok(f"天津市金万翔建材科技有限公司申报操作视频已生成\n\n[点击观看申报操作视频]({url})")
 
 
 # ══════════════════════════════════════════════════════════
