@@ -106,31 +106,87 @@ exec 返回：
 
 ---
 
-## ⛔⛔⛔ 路由判断（必须在执行前先判断）⛔⛔⛔
+## ⛔⛔⛔ 路由判断（最高优先级，必须在执行前先判断）⛔⛔⛔
 
-**收到用户的申报/清册/报税请求后，先判断涉及几家企业，再选择对应路径：**
+**收到用户请求后，先判断走哪条路径：**
 
-| 判断条件 | 走哪条路径 | 用哪个脚本 |
-|---|---|---|
-| 涉及 **2家及以上** 企业 | **批量路径** | batch.py |
-| 涉及 **1家** 企业 | 单企业路径 | state_machine.py |
-
-**触发批量路径的关键词**：
-- "所有企业"、"全部企业"、"名下企业"、"批量"、"一起报"、"001到005"
-- 用户列举了多家公司名（如"数算、星云、瀚海都报一下"）
-- 用户说"帮我申报这几家"并提到2家以上
-
-**只要涉及多家企业，必须走批量路径，禁止一家一家循环调用 state_machine.py。**
+| 判断条件 | 走哪条路径 |
+|---|---|
+| 用户给出了**多步骤流程**（包含"第一步"、"第二步"...或同时提到登录、画像、清册、申报等多个动作） | **演示流程模式** → 用 demo_flow.py |
+| 涉及 **2家及以上** 企业的单一操作（如"批量申报"） | **批量路径** → 用 batch.py |
+| 涉及 **1家** 企业的单一操作 | **单企业路径** → 用 state_machine.py |
 
 ---
 
-## 批量路径（2家及以上企业）
+## 演示流程模式（多步骤顺序执行）
+
+**当用户的 prompt 包含多个步骤（登录、画像、清册、财报、所得税、增值税等）时，使用 demo_flow.py 按步骤执行。**
+
+### 脚本路径
+
+```
+/Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py
+```
+
+### 执行方式：逐步执行，每步汇报结果
+
+**按顺序执行以下命令，每执行一步就把返回的 user_message 发给用户，然后继续下一步：**
+
+#### 第一步：登录
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step1"}'
+```
+
+#### 第二步：企业画像
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step2"}'
+```
+
+#### 第三步：获取清册（5家企业批量）
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step3"}'
+```
+
+#### 第四步：财务报表（需要 file_path）
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4","file_path":"/实际文件路径/财务报表.xlsx"}'
+```
+
+#### 第五步：企业所得税A
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step5"}'
+```
+
+#### 第六步：增值税相关（分6个子步骤顺序执行）
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_vat_init"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_vat_submit"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_pdf"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_video"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_payment"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_certificate"}'
+```
+
+**或者一键执行全部步骤（需要财报文件路径）：**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"run_all","file_path":"/实际文件路径/财务报表.xlsx"}'
+```
+
+**规则不变**：取每步返回 JSON 中的 `user_message` 发给用户，不要发 JSON 本身。
+
+---
+
+## 批量路径（2家及以上企业的单一操作）
 
 ### 脚本路径
 
 ```
 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py
 ```
+
+**触发关键词**："所有企业"、"全部企业"、"批量"、"一起报"、列举多家公司名
+
+**只要涉及多家企业，必须走批量路径，禁止一家一家循环调用 state_machine.py。**
 
 ### 第1步：批量创建
 
@@ -166,7 +222,7 @@ python3 /Users/kristyzhang/.openclaw/agents/qxy-declare/agent/tools/batch.py '{"
 
 ---
 
-## 单企业路径（仅1家企业）
+## 单企业路径（仅1家企业的单一操作）
 
 ### 第1轮：用户发起申报请求
 
