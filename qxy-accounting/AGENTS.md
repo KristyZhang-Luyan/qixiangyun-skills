@@ -147,10 +147,19 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step3"}'
 ```
 
-#### 第四步：财务报表（需要 file_path）
+#### 第四步：财务报表（分两阶段）
+
+**阶段1：提示用户发送文件（不传 file_path）**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4","file_path":"/实际文件路径/财务报表.xlsx"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4"}'
 ```
+把返回的 user_message 发给用户（会提示用户发送 Excel 文件）。
+
+**阶段2：用户通过飞书发送了 Excel 文件后，你会拿到文件路径，再执行：**
+```bash
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step4","file_path":"你拿到的文件路径"}'
+```
+把返回的 user_message 发给用户，然后继续第五步。
 
 #### 第五步：企业所得税A
 ```bash
@@ -167,9 +176,9 @@ python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"ac
 python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"step6_certificate"}'
 ```
 
-**或者一键执行全部步骤（需要财报文件路径）：**
+**或者一键执行全部步骤（第四步会暂停等用户发送文件）：**
 ```bash
-python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"run_all","file_path":"/实际文件路径/财务报表.xlsx"}'
+python3 /Users/kristyzhang/.openclaw/workspace-qxy-accounting/demo_flow.py '{"action":"run_all"}'
 ```
 
 **规则不变**：取每步返回 JSON 中的 `user_message` 发给用户，不要发 JSON 本身。

@@ -118,9 +118,7 @@ def step4_financial_report(file_path=""):
     cid = "QXY100031100000007"
     c = _ci(cid)
     if not file_path:
-        return _ok(f"第四步待执行：{c['name']}（{cid}）需要上传财务报表Excel文件。\n\n"
-                   f"请提供 file_path 参数，例如：\n"
-                   f'python3 demo_flow.py \'{{"action":"step4","file_path":"/path/to/财务报表.xlsx"}}\'')
+        return _ok(f"请发送 {c['name']}（{cid}）的财务报表Excel文件（小企业会计准则），我收到后会自动导入并提交申报。")
     try:
         import base64
         with open(file_path, "rb") as f:
