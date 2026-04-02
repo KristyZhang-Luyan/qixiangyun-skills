@@ -289,6 +289,7 @@ def _send_jsonrpc(
     params: Mapping[str, Any],
     request_id: int,
     session_id: str | None = None,
+    timeout: int | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     """发送 JSON-RPC 请求。"""
 
@@ -313,7 +314,7 @@ def _send_jsonrpc(
     )
 
     try:
-        with urlopen(request, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+        with urlopen(request, timeout=timeout or DEFAULT_TIMEOUT_SECONDS) as response:
             new_session_id = response.headers.get("Mcp-Session-Id") or session_id
             body_text = response.read().decode("utf-8")
     except HTTPError as exc:
@@ -395,6 +396,7 @@ def call_tool(
     tool_args: Mapping[str, Any] | None = None,
     *,
     inject_credentials: bool = True,
+    timeout: int | None = None,
 ) -> Any:
     """调用指定服务的 MCP 工具。"""
 
@@ -410,6 +412,7 @@ def call_tool(
         params={"name": tool_name, "arguments": payload},
         request_id=2,
         session_id=session_id,
+        timeout=timeout,
     )
 
     tool_result = result.get("result", {})
@@ -518,8 +521,37 @@ def poll_tool(
 
     last_result: Any = None
     last_state = "unknown"
+
+    # 网络异常重试配置
+    from urllib.error import URLError
+    import ssl
+    _network_errors = (URLError, ssl.SSLEOFError, TimeoutError, ConnectionResetError, ConnectionError, OSError)
+    _max_net_retries = 3
+    _net_backoff = [2, 5, 10]
+
     for attempt in range(1, max_attempts + 1):
-        last_result = call_tool(service_name, tool_name, tool_args)
+        # 网络异常重试
+        _net_ok = False
+        for _nr in range(_max_net_retries + 1):
+            try:
+                last_result = call_tool(service_name, tool_name, tool_args)
+                _net_ok = True
+                break
+            except _network_errors as exc:
+                if _nr < _max_net_retries:
+                    _wait = _net_backoff[min(_nr, len(_net_backoff) - 1)]
+                    LOGGER.warning(
+                        "轮询服务=%s 工具=%s 第 %s/%s 次 网络异常(%s)，%ds后重试(%d/%d)",
+                        service_name, tool_name, attempt, max_attempts, exc, _wait, _nr + 1, _max_net_retries,
+                    )
+                    time.sleep(_wait)
+                else:
+                    raise QXYMCPError(
+                        f"轮询服务={service_name} 工具={tool_name} 连续{_max_net_retries}次网络异常: {exc}"
+                    ) from exc
+        if not _net_ok:
+            continue  # 不会走到这里，raise 已经抛出
+
         last_state = infer_task_state(last_result)
         LOGGER.info(
             "轮询服务=%s 工具=%s 第 %s/%s 次，状态=%s",
@@ -530,7 +562,6 @@ def poll_tool(
             last_state,
         )
         if last_state == "failed":
-            # 记录失败时的完整响应，便于排查
             try:
                 detail = json.dumps(last_result, ensure_ascii=False, default=str)[:800]
             except Exception:

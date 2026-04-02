@@ -38,8 +38,8 @@ STATE_DIR = Path(os.environ.get("QXY_STATE_DIR", "/tmp/qxy-states"))
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── 轮询配置 ──────────────────────────────────────────
-POLL_INTERVAL = int(os.environ.get("QXY_POLL_INTERVAL", "10"))
-POLL_MAX = int(os.environ.get("QXY_POLL_MAX", "30"))
+POLL_INTERVAL = int(os.environ.get("QXY_POLL_INTERVAL", "5"))
+POLL_MAX = int(os.environ.get("QXY_POLL_MAX", "20"))
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -143,37 +143,99 @@ def api_call(endpoint_key: str, method: str = "POST", payload: dict = None,
 
     service, tool = mapping
 
-    try:
-        result = mcp_call_tool(service, tool, payload or {})
-        _last_call_context["service"] = service
+    import json as _json
+    log.info(
+        f"[api_call] 入参: service={service}, tool={tool}, payload={_json.dumps(payload or {}, ensure_ascii=False)}"
+    )
 
-        # 标准化为旧版返回格式
-        if not isinstance(result, dict):
-            return {"ok": True, "data": result, "code": "", "message": ""}
+    # initialize_data 服务更慢且更容易出现瞬时网络波动，单独放宽超时并启用重试。
+    _max_retries = 5 if service == "initialize_data" else 1
+    _timeout = 60 if service == "initialize_data" else None
+    _backoff = [2, 4, 8, 12, 15]
 
-        code = str(result.get("code", ""))
-        success = result.get("success", False)
-        msg = result.get("message", result.get("msg", ""))
+    from urllib.error import URLError
+    import ssl as _ssl
+    import time as _time
 
-        if code in ("2000", "SUCCESS", "") or success:
-            return {"ok": True, "data": result, "code": code, "message": msg}
-        else:
-            return {
-                "ok": False, "data": result, "code": code,
-                "message": msg,
-                "error": msg or f"业务错误: code={code}",
-            }
+    _net_errors = (
+        URLError,
+        _ssl.SSLEOFError,
+        TimeoutError,
+        ConnectionResetError,
+        ConnectionError,
+        OSError,
+    )
 
-    except QXYAuthError as e:
-        log.error("MCP 认证失败: %s", e)
-        return {"ok": False, "error": str(e), "code": "AUTH_ERROR", "message": str(e)}
-    except QXYMCPError as e:
-        log.error("MCP 调用失败 [%s/%s]: %s", service, tool, e)
-        return {"ok": False, "error": str(e), "code": "MCP_ERROR", "message": str(e)}
-    except Exception as e:
-        log.error("api_call 异常 [%s]: %s", endpoint_key, e)
-        return {"ok": False, "error": str(e)}
+    result = None
+    for _retry in range(_max_retries):
+        try:
+            result = mcp_call_tool(service, tool, payload or {}, timeout=_timeout)
+            log.info(f"[api_call] 出参: {_json.dumps(result, ensure_ascii=False, default=str)[:3000]}")
+            _last_call_context["service"] = service
+            break
+        except _net_errors as e:
+            if _retry >= _max_retries - 1:
+                log.error("[api_call] [%s/%s] 连续%d次网络异常: %s", service, tool, _max_retries, e)
+                return {
+                    "ok": False,
+                    "error": str(e),
+                    "code": "MCP_ERROR",
+                    "message": f"网络连接失败(重试{_max_retries}次): {e}",
+                }
 
+            _wait = _backoff[min(_retry, len(_backoff) - 1)]
+            log.warning(
+                "[api_call] 网络异常 [%s/%s] 第%d次，%ds后重试: %s",
+                service,
+                tool,
+                _retry + 1,
+                _wait,
+                e,
+            )
+            _time.sleep(_wait)
+        except QXYAuthError as e:
+            log.error("MCP 认证失败: %s", e)
+            return {"ok": False, "error": str(e), "code": "AUTH_ERROR", "message": str(e)}
+        except QXYMCPError as e:
+            if service == "initialize_data" and "网络" in str(e) and _retry < _max_retries - 1:
+                _wait = _backoff[min(_retry, len(_backoff) - 1)]
+                log.warning(
+                    "[api_call] MCP网络异常 [%s/%s] 第%d次，%ds后重试: %s",
+                    service,
+                    tool,
+                    _retry + 1,
+                    _wait,
+                    e,
+                )
+                _time.sleep(_wait)
+                continue
+
+            log.error("MCP 调用失败 [%s/%s]: %s", service, tool, e)
+            return {"ok": False, "error": str(e), "code": "MCP_ERROR", "message": str(e)}
+        except Exception as e:
+            log.error("api_call 异常 [%s]: %s", endpoint_key, e)
+            return {"ok": False, "error": str(e)}
+
+    if result is None:
+        return {"ok": False, "error": "MCP 调用未返回结果", "code": "EMPTY_RESULT"}
+
+    if not isinstance(result, dict):
+        return {"ok": True, "data": result, "code": "", "message": ""}
+
+    code = str(result.get("code", ""))
+    success = result.get("success", False)
+    msg = result.get("message", result.get("msg", ""))
+
+    if code in ("2000", "SUCCESS", "") or success:
+        return {"ok": True, "data": result, "code": code, "message": msg}
+
+    return {
+        "ok": False,
+        "data": result,
+        "code": code,
+        "message": msg,
+        "error": msg or f"业务错误: code={code}",
+    }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # poll_task — 签名兼容旧版，内部走 MCP poll_tool

@@ -284,6 +284,7 @@ def _send_jsonrpc(
     params: Mapping[str, Any],
     request_id: int,
     session_id: str | None = None,
+    timeout: int | None = None,
 ) -> tuple[dict[str, Any], str | None]:
     """发送 JSON-RPC 请求。"""
 
@@ -308,7 +309,7 @@ def _send_jsonrpc(
     )
 
     try:
-        with urlopen(request, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+        with urlopen(request, timeout=timeout or DEFAULT_TIMEOUT_SECONDS) as response:
             new_session_id = response.headers.get("Mcp-Session-Id") or session_id
             body_text = response.read().decode("utf-8")
     except HTTPError as exc:
@@ -390,6 +391,7 @@ def call_tool(
     tool_args: Mapping[str, Any] | None = None,
     *,
     inject_credentials: bool = True,
+    timeout: int | None = None,
 ) -> Any:
     """调用指定服务的 MCP 工具。"""
 
@@ -405,6 +407,7 @@ def call_tool(
         params={"name": tool_name, "arguments": payload},
         request_id=2,
         session_id=session_id,
+        timeout=timeout,
     )
 
     tool_result = result.get("result", {})

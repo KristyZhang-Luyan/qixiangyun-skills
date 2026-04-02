@@ -37,7 +37,7 @@ STATE_DIR = Path(os.environ.get("QXY_STATE_DIR", "/tmp/qxy-states"))
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── 轮询配置 ──────────────────────────────────────────
-POLL_INTERVAL = int(os.environ.get("QXY_POLL_INTERVAL", "10"))
+POLL_INTERVAL = int(os.environ.get("QXY_POLL_INTERVAL", "5"))
 POLL_MAX = int(os.environ.get("QXY_POLL_MAX", "30"))
 
 
