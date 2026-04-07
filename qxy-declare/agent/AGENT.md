@@ -95,33 +95,33 @@
 # ── 单企业模式（原有，不变）──
 
 # 创建任务
-python3 tools/state_machine.py '{"action":"create",...}'
+python3 skills/tax-declare/scripts/state_machine.py '{"action":"create",...}'
 
 # 推进一步
-python3 tools/state_machine.py '{"action":"advance","task_id":"..."}'
+python3 skills/tax-declare/scripts/state_machine.py '{"action":"advance","task_id":"..."}'
 
 # 注入数据
-python3 tools/state_machine.py '{"action":"inject","task_id":"...","data_key":"...","data_value":{...}}'
+python3 skills/tax-declare/scripts/state_machine.py '{"action":"inject","task_id":"...","data_key":"...","data_value":{...}}'
 
 # 查看状态
-python3 tools/state_machine.py '{"action":"status","task_id":"..."}'
+python3 skills/tax-declare/scripts/state_machine.py '{"action":"status","task_id":"..."}'
 
 # ── 批量模式（新增）──
 
 # 创建批量任务
-python3 tools/batch_state_machine.py '{"action":"create","companies":[{"company_id":"xxx","company_name":"测试1","agg_org_id":"123"},...],"period":"2026-03","tax_type":"vat"}'
+python3 skills/batch-declare/scripts/batch_state_machine.py '{"action":"create","companies":[{"company_id":"xxx","company_name":"测试1","agg_org_id":"123"},...],"period":"2026-03","tax_type":"vat"}'
 
 # 批量推进
-python3 tools/batch_state_machine.py '{"action":"advance","task_id":"batch_..."}'
+python3 skills/batch-declare/scripts/batch_state_machine.py '{"action":"advance","task_id":"batch_..."}'
 
 # 批量注入
-python3 tools/batch_state_machine.py '{"action":"inject","task_id":"batch_...","data_key":"...","data_value":{...}}'
+python3 skills/batch-declare/scripts/batch_state_machine.py '{"action":"inject","task_id":"batch_...","data_key":"...","data_value":{...}}'
 
 # 批量状态查询
-python3 tools/batch_state_machine.py '{"action":"status","task_id":"batch_..."}'
+python3 skills/batch-declare/scripts/batch_state_machine.py '{"action":"status","task_id":"batch_..."}'
 
 # 列出所有批量任务
-python3 tools/batch_state_machine.py '{"action":"list"}'
+python3 skills/batch-declare/scripts/batch_state_machine.py '{"action":"list"}'
 ```
 
 ---
@@ -132,7 +132,7 @@ python3 tools/batch_state_machine.py '{"action":"list"}'
 
 qxy-accounting 说：
 > 执行以下命令：
-> 1. python3 tools/state_machine.py '{"action":"advance","task_id":"decl_202602_test001"}'
+> 1. python3 skills/tax-declare/scripts/state_machine.py '{"action":"advance","task_id":"decl_202602_test001"}'
 > 把结果返回给我。
 
 你做的事：
@@ -145,8 +145,8 @@ qxy-accounting 说：
 
 qxy-accounting 说：
 > 请按顺序执行以下命令：
-> 1. python3 tools/state_machine.py '{"action":"inject","task_id":"...","data_key":"income_reply","data_value":{"has_income":false,"user_said":"没有"}}'
-> 2. python3 tools/state_machine.py '{"action":"advance","task_id":"..."}'
+> 1. python3 skills/tax-declare/scripts/state_machine.py '{"action":"inject","task_id":"...","data_key":"income_reply","data_value":{"has_income":false,"user_said":"没有"}}'
+> 2. python3 skills/tax-declare/scripts/state_machine.py '{"action":"advance","task_id":"..."}'
 > 把所有结果返回给我。
 
 你做的事：
@@ -159,7 +159,7 @@ qxy-accounting 说：
 
 qxy-accounting 说：
 > 执行以下命令：
-> 1. python3 tools/state_machine.py '{"action":"advance","task_id":"decl_202602_test001"}'
+> 1. python3 skills/tax-declare/scripts/state_machine.py '{"action":"advance","task_id":"decl_202602_test001"}'
 
 你执行后收到：`{"ok": false, "error": "反向验证失败..."}`
 
@@ -171,10 +171,10 @@ qxy-accounting 说：
 
 qxy-accounting 说：
 > 执行以下命令：
-> 1. python3 tools/state_machine.py '{"action":"advance","task_id":"decl_202602_test001"}'
+> 1. python3 skills/tax-declare/scripts/state_machine.py '{"action":"advance","task_id":"decl_202602_test001"}'
 
 你执行后收到 blocked，然后你自己决定执行：
-> python3 tools/state_machine.py '{"action":"inject","task_id":"...","data_key":"income_reply","data_value":{"has_income":false,"user_said":"用户说没有"}}'
+> python3 skills/tax-declare/scripts/state_machine.py '{"action":"inject","task_id":"...","data_key":"income_reply","data_value":{"has_income":false,"user_said":"用户说没有"}}'
 
 **这是严重错误！** 你不知道用户说了什么，你编造了 user_said。
 正确做法是把 blocked 结果返回给 qxy-accounting，然后停止。

@@ -9,7 +9,7 @@
 ## 你的职责
 
 qxy-accounting 会通过 sessions_spawn 把具体命令传给你，你负责：
-1. 用 python3 执行 `/Users/kristyzhang/.openclaw/agents/qxy-payment/agent/tools/state_machine.py`
+1. 用 python3 执行 `/Users/kristyzhang/.openclaw/agents/qxy-payment/skills/tax-payment/scripts/state_machine.py`
 2. 把执行结果**原样**返回给 qxy-accounting
 3. 不要做任何额外操作、不要解释、不要修改结果
 
@@ -39,16 +39,16 @@ INIT → CONFIRM_PAYMENT → EXECUTE_PAY → CHECK_RESULT → DOWNLOAD_CERT → 
 
 **创建缴费任务并推进：**
 ```bash
-python3 /Users/kristyzhang/.openclaw/agents/qxy-payment/agent/tools/state_machine.py '{"action":"create","company_id":"xxx","company_name":"公司名","agg_org_id":"12345","period":"2026-03","declare_result":{"total_payable":1500,"tax_details":[...]}}'
+python3 /Users/kristyzhang/.openclaw/agents/qxy-payment/skills/tax-payment/scripts/state_machine.py '{"action":"create","company_id":"xxx","company_name":"公司名","agg_org_id":"12345","period":"2026-03","declare_result":{"total_payable":1500,"tax_details":[...]}}'
 ```
 
 ```bash
-python3 /Users/kristyzhang/.openclaw/agents/qxy-payment/agent/tools/state_machine.py '{"action":"advance","task_id":"pay_202603_xxx"}'
+python3 /Users/kristyzhang/.openclaw/agents/qxy-payment/skills/tax-payment/scripts/state_machine.py '{"action":"advance","task_id":"pay_202603_xxx"}'
 ```
 
 **注入用户确认：**
 ```bash
-python3 /Users/kristyzhang/.openclaw/agents/qxy-payment/agent/tools/state_machine.py '{"action":"inject","task_id":"...","data_key":"payment_confirm","data_value":{"user_said":"确认缴款"}}'
+python3 /Users/kristyzhang/.openclaw/agents/qxy-payment/skills/tax-payment/scripts/state_machine.py '{"action":"inject","task_id":"...","data_key":"payment_confirm","data_value":{"user_said":"确认缴款"}}'
 ```
 
 ---
